@@ -1,0 +1,50 @@
+Currently Loaded Modulefiles:
+  1) pbs                          5) gcc/4.9.0
+  2) cuda/8.0                     6) tensorflow/1.0.1-python2.7
+  3) cudnn/5.1.10-cuda8.0         7) python/2.7.11-matplotlib
+  4) python/2.7.11                8) pythonlib/h5py/2.5.0
+I tensorflow/stream_executor/dso_loader.cc:135] successfully opened CUDA library libcurand.so.8.0 locally
+I tensorflow/stream_executor/dso_loader.cc:135] successfully opened CUDA library libcuda.so.1 locally
+I tensorflow/stream_executor/dso_loader.cc:135] successfully opened CUDA library libcufft.so.8.0 locally
+I tensorflow/stream_executor/dso_loader.cc:135] successfully opened CUDA library libcudnn.so.5 locally
+I tensorflow/stream_executor/dso_loader.cc:135] successfully opened CUDA library libcublas.so.8.0 locally
+cp: cannot stat `train.py': No such file or directory
+W tensorflow/core/platform/cpu_feature_guard.cc:45] The TensorFlow library wasn't compiled to use AVX2 instructions, but these are available on your machine and could speed up CPU computations.
+W tensorflow/core/platform/cpu_feature_guard.cc:45] The TensorFlow library wasn't compiled to use FMA instructions, but these are available on your machine and could speed up CPU computations.
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:885] Found device 0 with properties: 
+name: Tesla K80
+major: 3 minor: 7 memoryClockRate (GHz) 0.8235
+pciBusID 0000:84:00.0
+Total memory: 11.17GiB
+Free memory: 11.11GiB
+W tensorflow/stream_executor/cuda/cuda_driver.cc:590] creating context when one is currently active; existing: 0x45d2c20
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:885] Found device 1 with properties: 
+name: Tesla K80
+major: 3 minor: 7 memoryClockRate (GHz) 0.8235
+pciBusID 0000:85:00.0
+Total memory: 11.17GiB
+Free memory: 11.11GiB
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:906] DMA: 0 1 
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:916] 0:   Y Y 
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:916] 1:   Y Y 
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:975] Creating TensorFlow device (/gpu:0) -> (device: 0, name: Tesla K80, pci bus id: 0000:84:00.0)
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:975] Creating TensorFlow device (/gpu:1) -> (device: 1, name: Tesla K80, pci bus id: 0000:85:00.0)
+Traceback (most recent call last):
+  File "../train.py", line 263, in <module>
+    train()
+  File "../train.py", line 164, in train
+    train_one_epoch(sess, ops, train_writer)
+  File "../train.py", line 184, in train_one_epoch
+    current_data, current_label = provider.loadDataFile(TRAIN_FILES[train_file_idxs[fn]])
+  File "/home/561/yx2146/pointnet/provider.py", line 97, in loadDataFile
+    return load_h5(filename)
+  File "/home/561/yx2146/pointnet/provider.py", line 91, in load_h5
+    f = h5py.File(h5_filename)
+  File "/projects/access/apps/pythonlib/h5py/2.5.0/h5py-2.5.0-py2.7-linux-x86_64.egg/h5py/_hl/files.py", line 260, in __init__
+    fid = make_fid(name, mode, userblock_size, fapl, swmr=swmr)
+  File "/projects/access/apps/pythonlib/h5py/2.5.0/h5py-2.5.0-py2.7-linux-x86_64.egg/h5py/_hl/files.py", line 114, in make_fid
+    fid = h5f.create(name, h5f.ACC_EXCL, fapl=fapl, fcpl=fcpl)
+  File "_objects.pyx", line 54, in h5py._objects.with_phil.wrapper (/short/w35/saw562/tmp/easy_install-jSGUlT/h5py-2.5.0/h5py/_objects.c:2318)
+  File "_objects.pyx", line 55, in h5py._objects.with_phil.wrapper (/short/w35/saw562/tmp/easy_install-jSGUlT/h5py-2.5.0/h5py/_objects.c:2257)
+  File "h5f.pyx", line 96, in h5py.h5f.create (/short/w35/saw562/tmp/easy_install-jSGUlT/h5py-2.5.0/h5py/h5f.c:1931)
+IOError: Unable to create file (Unable to open file: name = 'data/modelnet40_ply_hdf5_2048/ply_data_train1.h5', errno = 2, error message = 'no such file or directory', flags = 15, o_flags = c2)
