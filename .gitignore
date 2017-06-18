@@ -1,1 +1,9 @@
 *.pyc
+/result_PBS_backup
+/data
+/part_seg/PartAnnotation/
+/part_seg/hdf5_data/
+part_seg/PartAnnotation.zip
+part_seg/hdf5_data.zip
+part_seg/PBS/train_results/trained_models
+part_seg/models_0

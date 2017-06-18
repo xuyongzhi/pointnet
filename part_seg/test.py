@@ -12,13 +12,14 @@ import pointnet_part_seg as model
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_path', default='train_results/trained_models/epoch_190.ckpt', help='Model checkpoint path')
+parser.add_argument('--input_dir',type=str,default=BASE_DIR,help='inpit dir for PartAnnotation')
 FLAGS = parser.parse_args()
 
 
 # DEFAULT SETTINGS
 pretrained_model_path = FLAGS.model_path # os.path.join(BASE_DIR, './pretrained_model/model.ckpt')
 hdf5_data_dir = os.path.join(BASE_DIR, './hdf5_data')
-ply_data_dir = os.path.join(BASE_DIR, './PartAnnotation')
+ply_data_dir = os.path.join(FLAGS.input_dir, './PartAnnotation')
 gpu_to_use = 0
 output_dir = os.path.join(BASE_DIR, './test_results')
 output_verbose = True   # If true, output all color-coded part segmentation obj files

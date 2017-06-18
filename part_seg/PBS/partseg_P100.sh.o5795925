@@ -1,0 +1,13 @@
+
+======================================================================================
+                  Resource Usage on 2017-06-16 08:54:52:
+   Job Id:             5795925.r-man2
+   Project:            dh01
+   Exit Status:        0
+   Service Units:      221.97
+   NCPUs Requested:    6                      NCPUs Used: 6               
+                                           CPU Time Used: 03:38:59                                   
+   Memory Requested:   12.0GB                Memory Used: 1.32GB          
+   Walltime requested: 20:00:00            Walltime Used: 09:14:55        
+   JobFS requested:    10.0GB                 JobFS used: 0B              
+======================================================================================

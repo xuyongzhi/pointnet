@@ -20,8 +20,10 @@ parser.add_argument('--epoch', type=int, default=200, help='Epoch to run [defaul
 parser.add_argument('--point_num', type=int, default=2048, help='Point Number [256/512/1024/2048]')
 parser.add_argument('--output_dir', type=str, default='train_results', help='Directory that stores all training logs and trained models')
 parser.add_argument('--wd', type=float, default=0, help='Weight Decay [Default: 0.0]')
+parser.add_argument('--input_dir',type=str,default=BASE_DIR,help='input directory for hdf5_data')
 FLAGS = parser.parse_args()
 
+print(FLAGS.input_dir,":\n",os.listdir(FLAGS.input_dir))
 hdf5_data_dir = os.path.join(BASE_DIR, './hdf5_data')
 
 # MAIN SCRIPT
