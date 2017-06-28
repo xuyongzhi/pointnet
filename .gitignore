@@ -12,3 +12,5 @@ sem_seg/indoor3d_sem_seg_hdf5_data.zip
 sem_seg/out*
 sem_seg/PBS_result
 *.swp
+*.ropeproject
+sem_seg/Stanford3dDataset_v1.2*
