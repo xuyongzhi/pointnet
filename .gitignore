@@ -10,6 +10,5 @@ dump
 sem_seg/indoor3d_sem_seg_hdf5_data
 sem_seg/indoor3d_sem_seg_hdf5_data.zip
 sem_seg/out*
-sem_seg/log4
-sem_seg/log5
-sem_seg/log6
+sem_seg/PBS_result
+*.swp
