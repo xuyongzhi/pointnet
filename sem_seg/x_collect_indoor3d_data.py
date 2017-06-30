@@ -1,25 +1,40 @@
-import os
-import sys
+from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import division
+
+import os,sys
+import numpy as np
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
-import indoor3d_util
+import x_indoor3d_util
+from x_print import *
 
-anno_paths = [line.rstrip() for line in open(os.path.join(BASE_DIR, 'meta/anno_paths.txt'))]
-print(anno_paths)
-sys.exit()
-anno_paths = [os.path.join(indoor3d_util.DATA_PATH, p) for p in anno_paths]
+ROOM_N = 2
 
-output_folder = os.path.join(ROOT_DIR, 'data/stanford_indoor3d')
-if not os.path.exists(output_folder):
-    os.mkdir(output_folder)
+anno_paths = [line.rstrip() for line in open (os.path.join(BASE_DIR,'meta/anno_paths.txt')) ]
+RAW_DATA_PATH = x_indoor3d_util.DATA_PATH
+anno_paths = [ os.path.join(RAW_DATA_PATH,p) for p in anno_paths]
 
-# Note: there is an extra character in the v1.2 data in Area_5/hallway_6. It's fixed manually.
+anno_paths = anno_paths[0:ROOM_N]
+
+out_dir = os.path.join(ROOT_DIR,'x_data/standford_indoor3d')
+if  not os.path.exists(out_dir):
+    os.makedirs(out_dir)
+    #print('mk dir: ',out_dir)
+
 for anno_path in anno_paths:
-    print(anno_path)
     try:
         elements = anno_path.split('/')
-        out_filename = elements[-3]+'_'+elements[-2]+'.npy' # Area_1_hallway_1.npy
-        indoor3d_util.collect_point_label(anno_path, os.path.join(output_folder, out_filename), 'numpy')
+        out_filename = os.path.join( out_dir, elements[-3]+'_'+elements[-2] )
+        #print(elements,'\n',out_filename)
+        import pdb; pdb.set_trace()  # XXX BREAKPOINT
+        x_indoor3d_util.collect_point_label(anno_path,out_filename,'numpy')
     except:
-        print(anno_path, 'ERROR!!')
+        print('ERROR!')
+
+print('end')
+
+
+

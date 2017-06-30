@@ -14,3 +14,6 @@ sem_seg/PBS_result
 *.swp
 *.ropeproject
 sem_seg/Stanford3dDataset_v1.2*
+x_data
+sem_seg/test.py
+part_seg/test_results
