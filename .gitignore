@@ -17,3 +17,4 @@ sem_seg/Stanford3dDataset_v1.2*
 x_data
 sem_seg/test.py
 part_seg/test_results
+x_sem_seg/log6

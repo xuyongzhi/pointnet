@@ -1,0 +1,2 @@
+data/stanford_indoor3d_split/Area_1_conferenceRoom_1_split.npy
+data/stanford_indoor3d_split/Area_1_conferenceRoom_2_split.npy
