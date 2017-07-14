@@ -215,6 +215,20 @@ def txt2obj(filename):
     out_f.close()
     print('save: ',out_filename)
 
+
+'''
+    ETH Semantic3D data preparation
+'''
+def remove_intensity(in_filename,out_filename):
+    '''
+    in_filename: x y z intensity r g b
+    out_filename: x y z r g b
+    '''
+    Data_In = np.loadtxt(in_filename)
+    if not Data_In.shape[1] == 7:
+        print('data shape wrong: ',Data_In.shape)
+    Data_out = Data_In[:,0:3]
+
 if __name__ == '__main__':
     ''' test functions
     '''
@@ -223,3 +237,5 @@ if __name__ == '__main__':
     #split_along_dim(filename,2,0,0.7)
     #read_obj_data(filename)
     print('\n OK')
+
+

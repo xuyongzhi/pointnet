@@ -28,7 +28,28 @@ g_class2color = {'ceiling':	[0,255,0],
                  'clutter':     [50,50,50]}
 g_easy_view_labels = [7,8,9,10,11,1]
 g_label2color = {g_classes.index(cls): g_class2color[cls] for cls in g_classes}
-
+g_is_labeled = True
+#------------------------------------------------------------------------------
+# xyz
+# PREPRPCESS INPUT DATA FORMAT TO TARGET FORMAT
+#------------------------------------------------------------------------------
+def collect_data_columns(raw_data,aim_idx=None,del_column=None):
+    ''' xyz
+        collect the input data to target format.
+        Change the column order; Delete some columns
+    Args:
+        raw_data: NxC
+        aim_idx: the aim idx of new_data in raw_data,invalid when del_column!=None
+        del_column: delete this column
+    Returns:
+        new_data
+    '''
+    if aim_idx == None or del_column!=None:
+        aim_idx = range(raw_data.shape[1])
+    if del_column!=None:
+        aim_idx.pop(del_column)
+    new_data = raw_data[:,aim_idx]
+    return new_data
 
 # -----------------------------------------------------------------------------
 # CONVERT ORIGINAL DATA TO OUR DATA_LABEL FILES
@@ -236,8 +257,10 @@ def room2blocks_plus_normalized(data_label, num_point, block_size, stride,
     data[:,3:6] /= 255.0
     if data_label.shape[1]==7:
         label = data_label[:,-1].astype(np.uint8)
+        g_is_labeled = True
     else:
         label = np.zeros((data.shape[0],1),dtype=np.uint8)
+        g_is_labeled = False
         print('no label, add zeros to continue predict')
     max_room_x = max(data[:,0])
     max_room_y = max(data[:,1])
@@ -259,7 +282,7 @@ def room2blocks_plus_normalized(data_label, num_point, block_size, stride,
 
 
 def room2blocks_wrapper_normalized(data_label_filename, num_point, block_size=1.0, stride=1.0,
-                                   random_sample=False, sample_num=None, sample_aug=1):
+                                   random_sample=False, sample_num=None, sample_aug=1,del_column=None):
     if data_label_filename[-3:] == 'txt':
         data_label = np.loadtxt(data_label_filename)
     elif data_label_filename[-3:] == 'npy':
@@ -267,6 +290,9 @@ def room2blocks_wrapper_normalized(data_label_filename, num_point, block_size=1.
     else:
         print('Unknown file type! exiting.')
         exit()
+
+    #xyz
+    data_label = collect_data_columns(data_label,del_column=del_column)
     return room2blocks_plus_normalized(data_label, num_point, block_size, stride,
                                        random_sample, sample_num, sample_aug)
 
@@ -593,5 +619,6 @@ def collect_point_bounding_box(anno_path, out_filename, file_format):
         print('ERROR!! Unknown file format: %s, please use txt or numpy.' % \
             (file_format))
         exit()
+
 
 

@@ -15,8 +15,10 @@ parser.add_argument('--model_path', required=True, help='model checkpoint file p
 parser.add_argument('--dump_dir', required=True, help='dump folder path')
 parser.add_argument('--output_filelist', required=True, help='TXT filename, filelist, each line is an output for a room')
 parser.add_argument('--room_data_filelist', required=True, help='TXT filename, filelist, each line is a test room data label file.')
+#parser.add_argument('--is_labeled', type=bool,default=True,help='If there is label in the input data')
 parser.add_argument('--no_clutter', action='store_true', help='If true, donot count the clutter class')
 parser.add_argument('--visu', action='store_true', help='Whether to output OBJ file for prediction visualization.')
+parser.add_argument('--del_column',type=int,default=None,help='index of the one column to be delete')
 FLAGS = parser.parse_args()
 
 BATCH_SIZE = FLAGS.batch_size
@@ -24,12 +26,15 @@ NUM_POINT = FLAGS.num_point
 MODEL_PATH = FLAGS.model_path
 GPU_INDEX = FLAGS.gpu
 DUMP_DIR = FLAGS.dump_dir
-if not os.path.exists(DUMP_DIR): os.mkdir(DUMP_DIR)
+DEL_COLUMN = FLAGS.del_column
+if not os.path.exists(DUMP_DIR): os.makedirs(DUMP_DIR)
 LOG_FOUT = open(os.path.join(DUMP_DIR, 'log_evaluate.txt'), 'w')
 LOG_FOUT.write(str(FLAGS)+'\n')
 ROOM_PATH_LIST = [os.path.join(ROOT_DIR,line.rstrip()) for line in open(FLAGS.room_data_filelist)]
 
 NUM_CLASSES = 13
+
+IsLabeled = True
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
@@ -45,7 +50,13 @@ def load_txt_npy(filename):
     else:
         data = []
         print('invalid file format:',file_format)
-    return data
+
+    data = indoor3d_util.collect_data_columns(data,del_column=DEL_COLUMN)
+    if data.shape[1] == 6:
+        IsLabeled = False
+    elif data.shape[1]==7:
+        IsLabeled = True
+    return data, IsLabeled
 
 def evaluate():
     is_training = False
@@ -94,7 +105,8 @@ def evaluate():
         total_seen += b
         fout_out_filelist.write(out_data_label_filename+'\n')
     fout_out_filelist.close()
-    log_string('all room eval accuracy: %f'% (total_correct / float(total_seen)))
+    if IsLabeled:
+        log_string('all room eval accuracy: %f'% (total_correct / float(total_seen)))
 
 def eval_one_epoch(sess, ops, room_path, out_data_label_filename, out_gt_label_filename):
     error_cnt = 0
@@ -104,17 +116,12 @@ def eval_one_epoch(sess, ops, room_path, out_data_label_filename, out_gt_label_f
     loss_sum = 0
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
-    if FLAGS.visu:
-        fout = open(os.path.join(DUMP_DIR, os.path.basename(room_path)[:-4]+'_pred.obj'), 'w')
-        fout_gt = open(os.path.join(DUMP_DIR, os.path.basename(room_path)[:-4]+'_gt.obj'), 'w')
-    fout_data_label = open(out_data_label_filename, 'w')
-    fout_gt_label = open(out_gt_label_filename, 'w')
 
-    current_data, current_label = indoor3d_util.room2blocks_wrapper_normalized(room_path, NUM_POINT)
+    current_data, current_label = indoor3d_util.room2blocks_wrapper_normalized(room_path, NUM_POINT,del_column=DEL_COLUMN)
     current_data = current_data[:,0:NUM_POINT,:]
     current_label = np.squeeze(current_label)
     # Get room dimension..
-    data_label = load_txt_npy(room_path)
+    data_label, IsLabeled = load_txt_npy(room_path)
     data = data_label[:,0:6]
     max_room_x = max(data[:,0])
     max_room_y = max(data[:,1])
@@ -122,8 +129,14 @@ def eval_one_epoch(sess, ops, room_path, out_data_label_filename, out_gt_label_f
 
     file_size = current_data.shape[0]
     num_batches = file_size // BATCH_SIZE
-    print(file_size)
+    print('file_size= '+str(file_size))
 
+    if FLAGS.visu:
+        fout = open(os.path.join(DUMP_DIR, os.path.basename(room_path)[:-4]+'_pred.obj'), 'w')
+        if IsLabeled: fout_gt = open(os.path.join(DUMP_DIR, os.path.basename(room_path)[:-4]+'_gt.obj'), 'w')
+    fout_data_label = open(out_data_label_filename, 'w')
+    if IsLabeled:
+        fout_gt_label = open(out_gt_label_filename, 'w')
 
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
@@ -151,12 +164,14 @@ def eval_one_epoch(sess, ops, room_path, out_data_label_filename, out_gt_label_f
             pred = pred_label[b, :]
             for i in range(NUM_POINT):
                 color = indoor3d_util.g_label2color[pred[i]]
-                color_gt = indoor3d_util.g_label2color[current_label[start_idx+b, i]]
+                if IsLabeled:
+                    color_gt = indoor3d_util.g_label2color[current_label[start_idx+b, i]]
                 if FLAGS.visu:
                     fout.write('v %f %f %f %d %d %d\n' % (pts[i,6], pts[i,7], pts[i,8], color[0], color[1], color[2]))
-                    fout_gt.write('v %f %f %f %d %d %d\n' % (pts[i,6], pts[i,7], pts[i,8], color_gt[0], color_gt[1], color_gt[2]))
+                    if IsLabeled: fout_gt.write('v %f %f %f %d %d %d\n' % (pts[i,6], pts[i,7], pts[i,8], color_gt[0], color_gt[1], color_gt[2]))
                 fout_data_label.write('%f %f %f %d %d %d %f %d\n' % (pts[i,6], pts[i,7], pts[i,8], pts[i,3], pts[i,4], pts[i,5], pred_val[b,i,pred[i]], pred[i]))
-                fout_gt_label.write('%d\n' % (l[i]))
+
+                if IsLabeled: fout_gt_label.write('%d\n' % (l[i]))
         correct = np.sum(pred_label == current_label[start_idx:end_idx,:])
         total_correct += correct
         total_seen += (cur_batch_size*NUM_POINT)
@@ -167,13 +182,15 @@ def eval_one_epoch(sess, ops, room_path, out_data_label_filename, out_gt_label_f
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_label[i-start_idx, j] == l)
 
-    log_string('eval mean loss: %f' % (loss_sum / float(total_seen/NUM_POINT)))
-    log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
+    if IsLabeled:
+        log_string('eval mean loss: %f' % (loss_sum / float(total_seen/NUM_POINT)))
+        log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
     fout_data_label.close()
-    fout_gt_label.close()
+    if IsLabeled:
+        fout_gt_label.close()
     if FLAGS.visu:
         fout.close()
-        fout_gt.close()
+        if IsLabeled: fout_gt.close()
     return total_correct, total_seen
 
 
