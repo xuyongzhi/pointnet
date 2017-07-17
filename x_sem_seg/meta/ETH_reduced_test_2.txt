@@ -1,0 +1,2 @@
+../Dataset/ETH_Semantic3D_Dataset/reduced_test/StGallenCathedral_station6_rgb_intensity-reduced.txt
+../Dataset/ETH_Semantic3D_Dataset/reduced_test/MarketplaceFeldkirch_Station4_rgb_intensity-reduced.txt

@@ -6,6 +6,7 @@ sys.path.append(BASE_DIR)
 from plyfile import (PlyData, PlyElement, make2d, PlyParseError, PlyProperty)
 import numpy as np
 import h5py
+import glob
 
 SAMPLING_BIN = os.path.join(BASE_DIR, 'third_party/mesh_sampling/build/pcsample')
 
@@ -145,6 +146,7 @@ def pad_arr_rows(arr, row, pad='edge'):
 
 
 
+# xyz
 # split data for visualization
 def split_along_dim(filename,dim,start,end):
     #MAXN = 20
@@ -216,6 +218,18 @@ def txt2obj(filename):
     print('save: ',out_filename)
 
 
+def WriteFileList(folder_path,format,out_file_name,prefix):
+    file_list = glob.glob(folder_path+'/*.'+format)
+    print(str(len(file_list))+' items found')
+    file = open(out_file_name,'w')
+    for i,item in enumerate(file_list):
+        item = os.path.basename(item)
+        item = os.path.join(prefix,item)
+        if i>0:
+            item = '\n'+item
+        file.write(item)
+
+
 '''
     ETH Semantic3D data preparation
 '''
@@ -236,6 +250,11 @@ if __name__ == '__main__':
     filename = '/home/x/Research/pointnet/sem_seg/log6/dump/Area_6_office_10_pred.obj'
     #split_along_dim(filename,2,0,0.7)
     #read_obj_data(filename)
-    print('\n OK')
 
+    folder_path = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/reduced_test'
+    out_file_name = '/short/dh01/yx2146/pointnet/x_sem_seg/meta/ETH_reduced_test.txt'
+    prefix='../Dataset/ETH_Semantic3D_Dataset/reduced_test'
+    WriteFileList(folder_path,'txt',out_file_name,prefix)
+
+    print('\n OK')
 
