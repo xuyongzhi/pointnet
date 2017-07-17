@@ -18,3 +18,5 @@ x_data
 sem_seg/test.py
 part_seg/test_results
 x_sem_seg/log6
+*.sh.e*
+*.sh.o*

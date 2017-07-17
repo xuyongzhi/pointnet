@@ -243,6 +243,23 @@ def remove_intensity(in_filename,out_filename):
         print('data shape wrong: ',Data_In.shape)
     Data_out = Data_In[:,0:3]
 
+def count_array(array,target):
+    count = array == target
+    num = np.count_nonzero(count)
+    return num
+
+def count_car_num(label_folder,out_file_name):
+    label_file_list = os.path.join(label_folder,'*.labels')
+    file_list = glob.glob(label_file_list)
+    labels_count = np.array([])
+    for file in file_list:
+        D = np.load(file)
+        n_line = np.zeors((1,9))
+        for l in range(0,9):
+            n_line[l] = count_array(D,l)
+            labels_count = np.vstack((labels_count,n_line))
+
+
 if __name__ == '__main__':
     ''' test functions
     '''
