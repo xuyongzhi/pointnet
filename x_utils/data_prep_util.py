@@ -7,6 +7,8 @@ from plyfile import (PlyData, PlyElement, make2d, PlyParseError, PlyProperty)
 import numpy as np
 import h5py
 import glob
+import time
+import multiprocessing as mp
 
 SAMPLING_BIN = os.path.join(BASE_DIR, 'third_party/mesh_sampling/build/pcsample')
 
@@ -248,30 +250,148 @@ def count_array(array,target):
     num = np.count_nonzero(count)
     return num
 
-def count_car_num(label_folder,out_file_name):
-    label_file_list = os.path.join(label_folder,'*.labels')
+def get_ETH_labels():
+    ETH_labels = {0: 'unlabeled points', 1: 'man-made terrain', 2: 'natural terrain', 3: 'high vegetation', 4: 'low vegetation',
+                  5: 'buildings', 6: 'hard scape', 7: 'scanning artefacts', 8: 'cars'}
+    return ETH_labels
+
+def count_line(in_queue,out_count):
+    while True:
+        if in_queue.empty():
+            return
+        item = in_queue.get()
+        num_line,line = item
+
+        #exit signal
+        if line==None:
+            return
+        line = int(line.strip())
+        compare = np.array( [line == e for e in range(0,9)] )
+        for i in range(len(out_count)):
+            out_count[i] += compare[i]
+
+
+
+def count_onefile_multiprocess(file_name,line_num_limit,OneFileProcessNum):
+    from multiprocessing import Process, Manager,Array
+    import itertools
+
+    num_workers = OneFileProcessNum
+    manager = Manager()
+    count_res = Array('i',[0]*9)
+    line_queue = manager.Queue(num_workers)
+
+    pool = []
+    for i in xrange(num_workers):
+        p = Process(target=count_line,args=(line_queue,count_res))
+        p.start()
+        pool.append(p)
+
+    total_N = 0
+
+    with open(file_name) as f:
+        #print('A file opened')
+        iters = itertools.chain(f,(None,)*num_workers)
+        for num_and_line in enumerate(iters):
+            line_queue.put(num_and_line)
+            #print ('put line ',num_and_line[0])
+            if num_and_line[0] > line_num_limit:
+                break
+        total_N = num_and_line[0]
+    for p in pool:
+        p.join()
+
+    count = count_res[:]
+    info_str = get_conclu_str(file_name,total_N,count)
+
+    return  info_str
+
+
+def get_conclu_str(file_name,total_N,count):
+    head_str =  '\n' + os.path.basename(file_name) + ' N = ' + str(total_N) + '\n'
+    num_str = '    '.join(str(int(e)) for e in count) + '\n'
+    rate_str = '  '.join('%0.1f'%(e/total_N) for e in count ) + '\n'
+    info_str = head_str+num_str+rate_str
+    return info_str
+
+def count_onefile(file_name,line_num_limit):
+    file = open(file_name,'r')
+    count = np.zeros(9)
+    i = 0
+
+    for i,line in enumerate(file):
+        line = int(line.strip())
+        compare = np.array( [line == e for e in range(0,9)] )
+        count += compare
+        if i>line_num_limit:
+            break
+    total_N = i+1
+    info_str = get_conclu_str(file_name,total_N,count)
+
+    print(info_str)
+    return info_str
+
+
+def count_labels_num(labels_folder,out_file_name):
+    label_file_list = os.path.join(labels_folder,'bildstein_station1_xyz_intensity_rgb.labels')
     file_list = glob.glob(label_file_list)
-    labels_count = np.array([])
-    for file in file_list:
-        D = np.load(file)
-        n_line = np.zeors((1,9))
-        for l in range(0,9):
-            n_line[l] = count_array(D,l)
-            labels_count = np.vstack((labels_count,n_line))
+    out_file = open(out_file_name,'w')
+    out_file.write( str(get_ETH_labels())+'\n' )
+
+    FilesProcessNum = 0
+    OneFileProcessNum = 5   # <=0 no multi
+
+    if FilesProcessNum>0:
+        p = mp.Pool()
+        result = p.imap_unordered(count_onefile_multiprocess,file_list)
+        #result = p.imap_unordered(count_onefile,file_list)
+    else:
+        result = []
+        line_num_limit = 100
+        for file_name in file_list:
+            print(file_name)
+            if OneFileProcessNum >0:
+                r = count_onefile_multiprocess(file_name,line_num_limit,OneFileProcessNum)
+            else:
+                r = count_onefile(file_name,line_num_limit)
+            result.append(r)
+
+    for r in result:
+        print(r)
+        out_file.write(r)
+    out_file.close()
 
 
-if __name__ == '__main__':
-    ''' test functions
-    '''
+#-------------------------------------------------------------------------------
+# TEST functions
+#-------------------------------------------------------------------------------
+def test_split_along_dim():
     filename = '/home/x/Research/pointnet/data/Stanford3dDataset_v1.2_Aligned_Version/Area_6/conferenceRoom_1/test.txt'
     filename = '/home/x/Research/pointnet/sem_seg/log6/dump/Area_6_office_10_pred.obj'
     #split_along_dim(filename,2,0,0.7)
     #read_obj_data(filename)
 
+def test_WriteFileList():
     folder_path = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/reduced_test'
     out_file_name = '/short/dh01/yx2146/pointnet/x_sem_seg/meta/ETH_reduced_test.txt'
     prefix='../Dataset/ETH_Semantic3D_Dataset/reduced_test'
-    WriteFileList(folder_path,'txt',out_file_name,prefix)
+    #WriteFileList(folder_path,'txt',out_file_name,prefix)
+
+def test_count_labels_num():
+    start_time = time.time()
+    labels_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training'
+    out_file_name = os.path.join( os.path.dirname(labels_folder),'training_labels_count.txt' )
+    count_labels_num(labels_folder,out_file_name)
+    T = time.time() - start_time
+    print('T = ',T)
+
+
+if __name__ == '__main__':
+    ''' test functions
+    '''
+    test_count_labels_num()
+
 
     print('\n OK')
+
 
