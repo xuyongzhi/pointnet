@@ -9,6 +9,7 @@ import h5py
 import glob
 import time
 import multiprocessing as mp
+import itertools
 
 SAMPLING_BIN = os.path.join(BASE_DIR, 'third_party/mesh_sampling/build/pcsample')
 
@@ -255,26 +256,41 @@ def get_ETH_labels():
                   5: 'buildings', 6: 'hard scape', 7: 'scanning artefacts', 8: 'cars'}
     return ETH_labels
 
-def count_line(in_queue,out_count):
+def count_line(in_queue,out_count,line_num_limit,OneFileProcessNum):
+    dis_step = get_dis_step(line_num_limit)
     while True:
-        if in_queue.empty():
-            return
         item = in_queue.get()
         num_line,line = item
 
         #exit signal
         if line==None:
+            #print('return:               line==None exit ')
             return
         line = int(line.strip())
         compare = np.array( [line == e for e in range(0,9)] )
         for i in range(len(out_count)):
             out_count[i] += compare[i]
+        #if num_line % dis_step == 0 or num_line >= line_num_limit:
+            #print('count line ',num_line, 'queue_size = ',in_queue.qsize())
+
+        # in the last OneFileProcessNum items, every process handle one item
+        if line_num_limit!=None and num_line >= line_num_limit-OneFileProcessNum+1:
+            print('return:           num_line=%d >= line_num_limit-OneFileProcessNum+1=%d '%(num_line,line_num_limit-OneFileProcessNum+1))
+            return
 
 
-
-def count_onefile_multiprocess(file_name,line_num_limit,OneFileProcessNum):
+def count_onefile_multiprocess(count_onefile_args):
+    '''
+    There is still some problems:
+        (1) way too slow
+        (2) can miss some lines
+    '''
     from multiprocessing import Process, Manager,Array
-    import itertools
+    file_name = count_onefile_args[0]
+    line_num_limit = count_onefile_args[1]
+    OneFileProcessNum = count_onefile_args[2]
+
+    dis_step = get_dis_step(line_num_limit)
 
     num_workers = OneFileProcessNum
     manager = Manager()
@@ -283,21 +299,23 @@ def count_onefile_multiprocess(file_name,line_num_limit,OneFileProcessNum):
 
     pool = []
     for i in xrange(num_workers):
-        p = Process(target=count_line,args=(line_queue,count_res))
+        p = Process(target=count_line,args=(line_queue,count_res,line_num_limit,OneFileProcessNum))
         p.start()
         pool.append(p)
 
     total_N = 0
-
     with open(file_name) as f:
         #print('A file opened')
         iters = itertools.chain(f,(None,)*num_workers)
         for num_and_line in enumerate(iters):
             line_queue.put(num_and_line)
-            #print ('put line ',num_and_line[0])
-            if num_and_line[0] > line_num_limit:
+            #if num_and_line[0] % dis_step == 0 or num_and_line[0]>=line_num_limit:
+                #print ('put line ',num_and_line[0], 'in process queue')
+            if line_num_limit!=None and num_and_line[0] >= line_num_limit:
+                #print('break at line ',num_and_line[0])
                 break
-        total_N = num_and_line[0]
+        total_N = num_and_line[0] - num_workers
+    print('              finished puting all lines in process queue ')
     for p in pool:
         p.join()
 
@@ -307,53 +325,82 @@ def count_onefile_multiprocess(file_name,line_num_limit,OneFileProcessNum):
     return  info_str
 
 
+def get_dis_step(line_num_limit):
+    if line_num_limit == None:
+        dis_step = 10000*500
+    else:
+        dis_step = int( line_num_limit / 3)
+        #dis_step = 1
+    return dis_step
+
 def get_conclu_str(file_name,total_N,count):
     head_str =  '\n' + os.path.basename(file_name) + ' N = ' + str(total_N) + '\n'
-    num_str = '    '.join(str(int(e)) for e in count) + '\n'
-    rate_str = '  '.join('%0.1f'%(e/total_N) for e in count ) + '\n'
-    info_str = head_str+num_str+rate_str
+    num_str = '     '.join(str(int(e)) for e in count) + '\n'
+    rate_str = '   '.join('%0.3f'%(e/total_N) for e in count )
+    info_str = head_str+num_str+rate_str + '\n'
     return info_str
 
-def count_onefile(file_name,line_num_limit):
+def count_onefile(count_onefile_args):
+    file_name = count_onefile_args[0]
+    line_num_limit = count_onefile_args[1]
+
     file = open(file_name,'r')
     count = np.zeros(9)
     i = 0
+    dis_step = get_dis_step(line_num_limit)
 
     for i,line in enumerate(file):
         line = int(line.strip())
         compare = np.array( [line == e for e in range(0,9)] )
         count += compare
-        if i>line_num_limit:
+
+        #if i % dis_step == 0 or i >= line_num_limit:
+            #print('counting line ',i,'  ',count)
+        if line_num_limit!=None and i>=line_num_limit:
+            #print('break at line ',i)
             break
     total_N = i+1
     info_str = get_conclu_str(file_name,total_N,count)
 
-    print(info_str)
     return info_str
 
 
 def count_labels_num(labels_folder,out_file_name):
-    label_file_list = os.path.join(labels_folder,'bildstein_station1_xyz_intensity_rgb.labels')
+    '''
+    For reading multi files, multi process is useful
+    For reading within one file, one process is much faster than multi file! Maybe my code is not good.
+    '''
+    label_file_list = os.path.join(labels_folder,'*.labels')
     file_list = glob.glob(label_file_list)
     out_file = open(out_file_name,'w')
     out_file.write( str(get_ETH_labels())+'\n' )
 
-    FilesProcessNum = 0
-    OneFileProcessNum = 5   # <=0 no multi
+    FilesProcessNum = 6
+    OneFileProcessNum = 0   # <=0 no multi
+    line_num_limit = None
+
+    print('\nFilesProcessNum = ',FilesProcessNum)
+    print('OneFileProcessNum = ',OneFileProcessNum)
+    print('line_num_limit = ',line_num_limit)
+
+    count_onefile_args_list = itertools.product(file_list,[line_num_limit],[OneFileProcessNum])
 
     if FilesProcessNum>0:
         p = mp.Pool()
-        result = p.imap_unordered(count_onefile_multiprocess,file_list)
-        #result = p.imap_unordered(count_onefile,file_list)
+
+        if OneFileProcessNum >0:
+            result = p.imap_unordered(count_onefile_multiprocess,count_onefile_args_list)
+        else:
+            result = p.imap_unordered(count_onefile,count_onefile_args_list)
     else:
         result = []
-        line_num_limit = 100
         for file_name in file_list:
-            print(file_name)
+            #print(file_name)
+            count_onefile_args = (file_name,line_num_limit,OneFileProcessNum)
             if OneFileProcessNum >0:
-                r = count_onefile_multiprocess(file_name,line_num_limit,OneFileProcessNum)
+                r = count_onefile_multiprocess(count_onefile_args)
             else:
-                r = count_onefile(file_name,line_num_limit)
+                r = count_onefile(count_onefile_args)
             result.append(r)
 
     for r in result:
@@ -380,10 +427,10 @@ def test_WriteFileList():
 def test_count_labels_num():
     start_time = time.time()
     labels_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training'
-    out_file_name = os.path.join( os.path.dirname(labels_folder),'training_labels_count.txt' )
+    out_file_name = os.path.join( os.path.dirname(labels_folder),'training_labels_count_3.txt' )
     count_labels_num(labels_folder,out_file_name)
     T = time.time() - start_time
-    print('T = ',T)
+    print('\nT = ',T)
 
 
 if __name__ == '__main__':
