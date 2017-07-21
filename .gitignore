@@ -20,3 +20,4 @@ part_seg/test_results
 x_sem_seg/log6
 *.sh.e*
 *.sh.o*
+x_sem_seg/PBS/

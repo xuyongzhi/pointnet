@@ -6,6 +6,7 @@ import glob
 import itertools
 import multiprocessing as mp
 import time
+import argparse
 
 BASE_DIR = os.path.dirname( os.path.abspath(__file__) )
 ROOT_DIR = os.path.dirname( BASE_DIR )
@@ -27,7 +28,7 @@ def collect_one_file(args_list):
 
     print('start collecting ',data_file_name )
     with open(data_file_name,'r') as data_f, open(label_file_name,'r') as labels_f, open(out_file_name,'w')  as out_f:
-        for i,e in enumerate(itertools.izip(data_f,labels_f)):
+        for i,e in enumerate(zip(data_f,labels_f)):
             data_line = e[0]
             data_line = remove_column_from_str(data_line.strip(),3)
             labels_line = e[1]
@@ -36,25 +37,27 @@ def collect_one_file(args_list):
 
             if line_num_limit!=None and i > line_num_limit:
                 break
-            if i%5000000 == 0:
+            if i%500000 == 0:
                 print('line %d in %s'%(i,os.path.basename(data_file_name)))
     print('end writing %s'%(out_file_name) )
 
 
-def collect_ETH3d():
+def collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder):
     import shutil
-    ETH_BaseFolder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part1'
-    out_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training_labeled'
-    labels_file_list = glob.glob(ETH_BaseFolder+'/*.labels')
-    IsMultiProcess = True
 
-    if os.path.exists(out_folder):
-        shutil.rmtree(out_folder)
-    os.makedirs(out_folder)
+    if not os.path.exists(ETH_DataFolder):
+        print('ERROR   ETH_DataFolder not exists: ',ETH_DataFolder)
+        return
+    labels_file_list = glob.glob(ETH_DataFolder+'/*.labels')
+    IsMultiProcess = False
+
+    if os.path.exists(LabeledData_OutFolder):
+        shutil.rmtree(LabeledData_OutFolder)
+    os.makedirs(LabeledData_OutFolder)
 
     print(len(labels_file_list),' files detected')
     if IsMultiProcess:
-        p = mp.Pool(mp.cpu_count()-1)
+        p = mp.Pool(mp.cpu_count()-0)
 
     for label_file_name in labels_file_list:
         label_file_basename = os.path.splitext(label_file_name)[0]
@@ -63,7 +66,7 @@ def collect_ETH3d():
             print('file not exist: ',data_file_name)
             continue
         out_file_name = os.path.basename(label_file_basename) + '_labeled.txt'
-        out_file_name = os.path.join(out_folder,out_file_name)
+        out_file_name = os.path.join(LabeledData_OutFolder,out_file_name)
         args_list = [data_file_name,label_file_name,out_file_name]
 
         if IsMultiProcess:
@@ -78,8 +81,20 @@ def collect_ETH3d():
         print('single process')
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='get the data paths')
+    parser.add_argument('--ETH_DataFolder',type=str,
+                        default='/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part0',
+                        help = 'the folder contains data.txt and data.labels')
+    parser.add_argument('--LabeledData_OutFolder',type=str,
+                        default='/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training_labeled/part0',
+                        help = 'the folder to store labeled data')
+    args = parser.parse_args()
+    ETH_DataFolder = args.ETH_DataFolder
+    LabeledData_OutFolder = args.LabeledData_OutFolder
+
+
     start_time = time.time()
-    collect_ETH3d()
+    collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder)
     print('T = ',time.time() - start_time)
 
     print('collect_ETH3d_data main exit')
