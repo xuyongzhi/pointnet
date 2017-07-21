@@ -335,8 +335,8 @@ def get_dis_step(line_num_limit):
 
 def get_conclu_str(file_name,total_N,count):
     head_str =  '\n' + os.path.basename(file_name) + ' N = ' + str(total_N) + '\n'
-    num_str = '     '.join(str(int(e)) for e in count) + '\n'
-    rate_str = '   '.join('%0.3f'%(e/total_N) for e in count )
+    num_str = '     '.join(str(i)+': '+str(int(e)) for i, e in enumerate(count)) + '\n'
+    rate_str = '   '.join('%d: %0.3f'%(i,e/total_N) for i,e in enumerate(count) )
     info_str = head_str+num_str+rate_str + '\n'
     return info_str
 
@@ -377,7 +377,7 @@ def count_labels_num(labels_folder,out_file_name):
 
     FilesProcessNum = 6
     OneFileProcessNum = 0   # <=0 no multi
-    line_num_limit = None
+    line_num_limit = 1000
 
     print('\nFilesProcessNum = ',FilesProcessNum)
     print('OneFileProcessNum = ',OneFileProcessNum)
@@ -427,7 +427,7 @@ def test_WriteFileList():
 def test_count_labels_num():
     start_time = time.time()
     labels_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training'
-    out_file_name = os.path.join( os.path.dirname(labels_folder),'training_labels_count_3.txt' )
+    out_file_name = os.path.join( os.path.dirname(labels_folder),'count_training_labels_A.txt' )
     count_labels_num(labels_folder,out_file_name)
     T = time.time() - start_time
     print('\nT = ',T)
