@@ -174,6 +174,44 @@ def file_split(in_file_name,splited_folder,split_N,total_line_num):
         for k in range(split_N):
             out_f[k].close()
 
+def merge_spilted_files(splited_folder,merged_folder):
+    if not os.path.exists(merged_folder):
+        os.makedirs(merged_folder)
+    splited_file_list = glob.glob(os.path.join(splited_folder,'*-slice-*.txt') )
+    file_base_name_list = [os.path.basename(e) for e in splited_file_list]
+    file_base_name_list = [os.path.splitext(e)[0] for e in file_base_name_list]
+    file_raw_name_list = [e.split('-slice-')[0] for e in file_base_name_list]
+    file_raw_name_clean = list(set(file_raw_name_list))
+    merged_file_N = len(file_raw_name_clean)
+
+    for k in range(merged_file_N):
+        max_split_N = 0
+        for name in file_base_name_list:
+            name_parts = name.split('-slice-')
+            if name_parts[0] == file_raw_name_clean[k]:
+                n = int(os.path.splitext(name_parts)[0])
+                max_split_N = max(max_split_N,n)
+                print('max_split_N = ',max_split_N)
+        merged_file_name_k = os.path.join(merged_folder,file_raw_name_set[k]+'.txt')
+        with open(merged_file_name_k,'w') as f_m_k:
+            for n in range(max_split_N):
+                splited_file_name_n = file_raw_name_set[k]+'-slice-'+str(n)+'.txt'
+                with open(splited_file_name_n,'r') as f_s_n:
+                    for line in f_s_n:
+                        f_m_k.write(line)
+
+    print(file_base_name_list)
+    print(file_base_name_set)
+    print(len(file_base_name_set))
+#-------------------------------------------------------------------------------
+# Test Functions
+#-------------------------------------------------------------------------------
+def test_merge_files():
+    splited_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb'
+    merged_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb/merged'
+    merge_spilted_files(splited_folder,merged_folder)
+
+
 def test_split_file():
     label_file_name = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb.labels'
     splited_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb'
@@ -219,7 +257,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
     #collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder)
-    test_split_file()
+    test_merge_files()
     print('T = ',time.time() - start_time)
 
     print('collect_ETH3d_data main exit')
