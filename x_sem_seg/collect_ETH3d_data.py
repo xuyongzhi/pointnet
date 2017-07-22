@@ -142,18 +142,43 @@ def collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder):
     else:
         print('single process')
 
-def data_label_files_split(label_file_name,split_folder,split_N):
+def data_label_files_split(label_file_name,splited_folder,split_N):
     line_num = get_total_line_num(label_file_name)
     label_file_basename = os.path.splitext(label_file_name)[0]
     data_file_name = label_file_basename+'.txt'
+    if not os.path.exists(data_file_name) and os.path.exists(label_file_name):
+        print('ERROR file not exist')
+        return
+    if not os.path.exists(splited_folder):
+        os.makedirs(splited_folder)
+
     file_split(label_file_name,splited_folder,split_N,line_num)
     file_split(data_file_name,splited_folder,split_N,line_num)
 
-def file_split(in_file_name,splited_folder,split_N):
+def file_split(in_file_name,splited_folder,split_N,total_line_num):
     ''' split file in_file_name to  split_N slices, store in splited_folder '''
     file_basename = os.path.splitext( os.path.basename(in_file_name) )[0]
-    data_file_name = label_file_basename+'.txt'
-    out_names = [ os.path.join( splited_folder,'-slice-'+str(i)  for i in range(split_N)  ]
+    out_names = [ os.path.join( splited_folder,file_basename+'-slice-'+str(i) +'.txt')  for i in range(split_N) ]
+    with open(in_file_name,'r') as f:
+        step = total_line_num / split_N + 1
+        out_f = []
+        for k in range(split_N):
+            out_f_k = open(out_names[k],'w')
+            out_f.append(out_f_k)
+        j = -1
+        for i,line  in enumerate(f):
+            out_f[j].write(line)
+            if i%step == 0 and j < split_N-1:
+                j += 1
+
+        for k in range(split_N):
+            out_f[k].close()
+
+def test_split_file():
+    label_file_name = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb.labels'
+    splited_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb'
+    split_N = 6
+    data_label_files_split(label_file_name,splited_folder,split_N)
 
 def test():
     file_name = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part3/sg27_station9_intensity_rgb.labels'
@@ -194,7 +219,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
     #collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder)
-    test()
+    test_split_file()
     print('T = ',time.time() - start_time)
 
     print('collect_ETH3d_data main exit')
