@@ -42,11 +42,11 @@ def collect_file_slice(data_f_slice,label_f_slice,out_f_slice,line_num_limit_sli
             print('line %d in %s'%(i))
 
 
-def collect_one_file_multiprocess(total_line_nums,data_file_name,
+def collect_one_file_multiprocess(total_line_num,data_file_name,
                                   label_file_name,out_file_name,line_num_limit,num_workers):
 
     if line_num_limit == None:
-        step = int( total_line_nums / num_workers ) + 1
+        step = int( total_line_num / num_workers ) + 1
     else:
         step = int( line_num_limit / num_workers ) + 1
     data_files = []
@@ -92,8 +92,8 @@ def get_total_line_num(file_name):
 
 def collect_one_file(data_file_name,label_file_name,out_file_name,line_num_limit,OneFile_WorkersNum):
     if OneFile_WorkersNum > 0:
-        total_line_nums = 500*10000
-        collect_one_file_multiprocess(total_line_nums,data_file_name,
+        total_line_num = 500*10000
+        collect_one_file_multiprocess(total_line_num,data_file_name,
                                       label_file_name,out_file_name,line_num_limit,OneFile_WorkersNum)
     else:
         collect_one_file_singleprocess(data_file_name,label_file_name,out_file_name,line_num_limit)
@@ -142,8 +142,9 @@ def collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder):
     else:
         print('single process')
 
-def data_label_files_split(label_file_name,splited_folder=None,split_N=5):
-    line_num = get_total_line_num(label_file_name)
+def data_label_files_split(label_file_name,split_N=5,line_num=None,splited_folder=None):
+    if line_num == None:
+        line_num = get_total_line_num(label_file_name)
     label_file_basename = os.path.splitext(label_file_name)[0]
     data_file_name = label_file_basename+'.txt'
     if not os.path.exists(data_file_name) and os.path.exists(label_file_name):
@@ -172,6 +173,11 @@ def file_split(in_file_name,splited_folder,split_N,total_line_num):
             if i%step == 0 and j < split_N-1:
                 j += 1
             out_f[j].write(line)
+            if i% (int(step/3)) == 0:
+                print('spliting '+str(i))
+            if i >= total_line_num-1:
+                break
+
 
         for k in range(split_N):
             out_f[k].close()
@@ -220,10 +226,18 @@ def test_merge_files():
 
 
 def test_split_file():
-    label_file_name = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb.labels'
-    splited_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb'
-    split_N = 7
-    data_label_files_split(label_file_name)
+    label_file_name_1 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part0/sg27_station2_intensity_rgb.labels'
+    label_file_name_2 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part0/sg28_station4_intensity_rgb.labels'
+    label_file_names = [label_file_name_1,label_file_name_2]
+    split_Ns = [17,9]
+    line_num_limit = 1000
+
+    #p = mp.Pool()
+    for k in range(len(split_Ns)):
+        #p.apply_async(data_label_files_split,args=(label_file_names[k],split_Ns[k],line_num_limit,) )
+        data_label_files_split(label_file_names[k],split_Ns[k])
+    #p.join()
+    print('split OK')
 
 def test():
     file_name = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part3/sg27_station9_intensity_rgb.labels'
@@ -264,6 +278,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
     #collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder)
+    test_split_file()
     print('T = ',time.time() - start_time)
 
     print('collect_ETH3d_data main exit')
