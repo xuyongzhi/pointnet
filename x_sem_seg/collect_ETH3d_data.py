@@ -167,9 +167,9 @@ def file_split(in_file_name,splited_folder,split_N,total_line_num):
             out_f.append(out_f_k)
         j = -1
         for i,line  in enumerate(f):
-            out_f[j].write(line)
             if i%step == 0 and j < split_N-1:
                 j += 1
+            out_f[j].write(line)
 
         for k in range(split_N):
             out_f[k].close()
@@ -183,26 +183,29 @@ def merge_spilted_files(splited_folder,merged_folder):
     file_raw_name_list = [e.split('-slice-')[0] for e in file_base_name_list]
     file_raw_name_clean = list(set(file_raw_name_list))
     merged_file_N = len(file_raw_name_clean)
+    merged_file_names = []
 
     for k in range(merged_file_N):
         max_split_N = 0
         for name in file_base_name_list:
             name_parts = name.split('-slice-')
             if name_parts[0] == file_raw_name_clean[k]:
-                n = int(os.path.splitext(name_parts)[0])
+                n = int(name_parts[-1])
                 max_split_N = max(max_split_N,n)
-                print('max_split_N = ',max_split_N)
-        merged_file_name_k = os.path.join(merged_folder,file_raw_name_set[k]+'.txt')
+        max_split_N += 1
+        print('max_split_N = ',max_split_N)
+        merged_file_name_k = os.path.join(merged_folder,file_raw_name_clean[k]+'.txt')
+        merged_file_names.append(merged_file_name_k)
         with open(merged_file_name_k,'w') as f_m_k:
             for n in range(max_split_N):
-                splited_file_name_n = file_raw_name_set[k]+'-slice-'+str(n)+'.txt'
+                splited_file_name_n = file_raw_name_clean[k]+'-slice-'+str(n)+'.txt'
+                print(splited_file_name_n)
+                splited_file_name_n = os.path.join(splited_folder,splited_file_name_n)
                 with open(splited_file_name_n,'r') as f_s_n:
                     for line in f_s_n:
                         f_m_k.write(line)
 
-    print(file_base_name_list)
-    print(file_base_name_set)
-    print(len(file_base_name_set))
+    print('merge \n %s \n to %s'%(file_base_name_list,merged_file_names))
 #-------------------------------------------------------------------------------
 # Test Functions
 #-------------------------------------------------------------------------------
@@ -215,7 +218,7 @@ def test_merge_files():
 def test_split_file():
     label_file_name = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb.labels'
     splited_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/tmp/bildstein_station3_xyz_intensity_rgb'
-    split_N = 6
+    split_N = 7
     data_label_files_split(label_file_name,splited_folder,split_N)
 
 def test():
@@ -257,6 +260,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
     #collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder)
+    test_split_file()
     test_merge_files()
     print('T = ',time.time() - start_time)
 
