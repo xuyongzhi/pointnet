@@ -151,7 +151,7 @@ def data_label_files_split(label_file_name,split_N=5,line_num=None,splited_folde
         print('ERROR file not exist')
         return
     if splited_folder == None:
-        splited_folder = os.path.join(os.path.dirname(label_file_name),'splited')
+        splited_folder = os.path.join(os.path.dirname(label_file_name),'splited_on')
     if not os.path.exists(splited_folder):
         os.makedirs(splited_folder)
 
@@ -163,7 +163,8 @@ def file_split(in_file_name,splited_folder,split_N,total_line_num):
     file_basename,file_format = os.path.splitext( os.path.basename(in_file_name) )
     out_names = [ os.path.join( splited_folder,file_basename+'-slice-'+str(i) +file_format)  for i in range(split_N) ]
     with open(in_file_name,'r') as f:
-        step = total_line_num / split_N + 1
+        step = int(total_line_num / split_N + 1)
+        #print('step = ',step)
         out_f = []
         for k in range(split_N):
             out_f_k = open(out_names[k],'w')
@@ -227,17 +228,17 @@ def test_merge_files():
 
 
 def test_split_files():
-    label_file_name_1 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part0/sg27_station2_intensity_rgb.labels'
-    label_file_name_2 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part0/sg28_station4_intensity_rgb.labels'
+    label_file_name_1 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A/sg27_station2_intensity_rgb.labels'
+    label_file_name_2 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A/sg27_station5_intensity_rgb.labels'
+    label_file_name_3 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A/sg27_station9_intensity_rgb.labels'
 
-
-    label_file_name_1 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/tmp1.txt'
-    label_file_name_2 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/tmp3.txt'
-    label_file_name_3 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/tmp2.txt'
+   # label_file_name_1 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/tmp1.txt'
+   # label_file_name_2 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/tmp3.txt'
+   # label_file_name_3 = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/tmp2.txt'
 
 
     label_file_names = [label_file_name_1,label_file_name_2,label_file_name_3]
-    split_Ns = [3,5,4]
+    split_Ns = [15,5,5]
     line_num_limit = None
 
     p = mp.Pool()
@@ -247,7 +248,7 @@ def test_split_files():
 
     p.close()
     p.join()
-    print('split OK')
+    print(' all split OK')
 
 def test():
     file_name = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part3/sg27_station9_intensity_rgb.labels'
@@ -288,8 +289,8 @@ if __name__ == '__main__':
 
     start_time = time.time()
     #collect_ETH3d(ETH_DataFolder,LabeledData_OutFolder)
-    test_split_files()
-    test_merge_files()
+    #test_split_files()
+    #test_merge_files()
     print('T = ',time.time() - start_time)
 
     print('collect_ETH3d_data main exit')
