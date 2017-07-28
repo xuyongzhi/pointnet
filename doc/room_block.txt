@@ -1,0 +1,37 @@
+The room block strategy:
+
+
+
+* block to block:
+  if not random_sample:                                                        
+      num_block_x = int(np.ceil((limit[0] - block_size) / stride)) + 1  
+      
+      xbeg_list.append(i*stride)
+(?) What are the best block_size and stride?
+
+* downsample method:
+  sample = np.random.choice(N, num_sample)
+(?) What is the best num_point: 70575 -> 4096
+(?) Is the random choice too random. Should it consider more about space smooth and average?
+
+* data normalize:
+    data[:,3:6] /= 255.0
+    max_room_x = max(data[:,0])                                                  
+    max_room_y = max(data[:,1])                                                  
+    max_room_z = max(data[:,2])
+    for b in range(data_batch.shape[0]):                                         
+         new_data_batch[b, :, 6] = data_batch[b, :, 0]/max_room_x                 
+         new_data_batch[b, :, 7] = data_batch[b, :, 1]/max_room_y                 
+         new_data_batch[b, :, 8] = data_batch[b, :, 2]/max_room_z                 
+         minx = min(data_batch[b, :, 0])                                          
+         miny = min(data_batch[b, :, 1])                                          
+         data_batch[b, :, 0] -= (minx+block_size/2)                               
+         data_batch[b, :, 1] -= (miny+block_size/2)                               
+    new_data_batch[:, :, 0:6] = data_batch
+
+
+# 
+  a) color -> [0,1]
+  b) xyz [6:9] -> [0,1]
+  c) xyz [0:3] -> [-0.5,0.5]*block_size
+
