@@ -409,6 +409,113 @@ def count_labels_num(labels_folder,out_file_name):
     out_file.close()
 
 
+def clean_label_files_list(label_files_list):
+    data_files_list = []
+    h5_files_list = []
+    for i,label_file_name in enumerate(label_files_list):
+       no_format_name = os.path.splitext(label_file_name)[0]
+       data_file_name = no_format_name + '.txt'
+       h5_file_name = no_format_name + '.hdf5'
+       if not os.path.exists(data_file_name):
+           label_files_list.pop(i)
+           print('del label_files_list[%d]:%s'%(i,label_file_name))
+       else:
+           data_files_list.append(data_file_name)
+           h5_files_list.append(h5_file_name)
+    return data_files_list, h5_files_list
+
+def gen_rawETH_to_h5(label_files_glob,line_num_limit=None):
+    '''
+    transform the data and label to h5 format
+    put every dim to a single dataset
+        to speed up search and compare of a single dim
+    data is large, chunk to speed up slice
+    '''
+    h5_chunk_row_step_1M = 50*1000
+    h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
+    h5_chunk_row_step_100M = h5_chunk_row_step_1M * 100
+    h5_chunk_row_step_1G = h5_chunk_row_step_1M * 1000
+    h5_chunk_row_step =  h5_chunk_row_step_10M
+    h5_default_rows = h5_chunk_row_step * 5
+
+    label_files_list = glob.glob(label_files_glob)
+    data_files_list, h5_files_list = clean_label_files_list(label_files_list)
+    print('%d data-label files detected'%(len(label_files_list)))
+
+    for i,label_fn in enumerate(label_files_list):
+        data_fn = data_files_list[i]
+        h5_fn = h5_files_list[i]
+        with open(data_fn,'r') as data_f, open(label_fn,'r') as label_f, h5py.File(h5_fn,'w') as h5_f:
+            data_label_fs = itertools.izip(data_f,label_f)
+            if 'xyz' in h5_f:
+                xyz_dset = h5_f['xyz']
+            else:
+                xyz_dset = h5_f.create_dataset('xyz',shape=(h5_default_rows,3),maxshape=(None,3),dtype=np.float32,chunks=(h5_chunk_row_step,3))
+            if 'intensity' in h5_f:
+                intensity_dset = h5_f['intensity']
+            else:
+                intensity_dset = h5_f.create_dataset('intensity',shape=(h5_default_rows,1),maxshape=(None,1),dtype=np.int32,chunks=(h5_chunk_row_step,1))
+            if 'color' in h5_f:
+                color_dset = h5_f['color']
+            else:
+                color_dset = h5_f.create_dataset('color',shape=(h5_default_rows,3),maxshape=(None,3),dtype=np.int8,chunks=(h5_chunk_row_step,3))
+            if 'label' in h5_f:
+                label_dset = h5_f['label']
+            else:
+                label_dset = h5_f.create_dataset('label',shape=(h5_default_rows,1),maxshape=(None,1),dtype=np.int8,chunks=(h5_chunk_row_step,1))
+
+            buf_rows = h5_chunk_row_step
+            data_buf = np.zeros((buf_rows,7),np.float32)
+            label_buf = np.zeros((buf_rows,1),np.int8)
+            for k,data_label_line in enumerate(data_label_fs):
+                k_buf = k%buf_rows
+                data_buf[k_buf,:] =np.fromstring( data_label_line[0].strip(),dtype=np.float32,sep=' ' )
+                label_buf[k_buf,:] = np.fromstring( data_label_line[1].strip(),dtype=np.float32,sep=' ' )
+                if k_buf == buf_rows-1:
+                    start = int(k/buf_rows)*buf_rows
+                    end = k+1
+                    print('start = %d, end = %d in file: %s'%(start,end,data_fn))
+                    add_buf(xyz_dset,data_buf[:,0:3],start,end)
+                    add_buf(intensity_dset,data_buf[:,3:4],start,end)
+                    add_buf(color_dset,data_buf[:,4:7],start,end)
+                    add_buf(label_dset,label_buf[:,0:1],start,end)
+                    h5_f.flush()
+
+                    if line_num_limit != None and end >= line_num_limit:
+                        print('break at k= ',k)
+                        break
+
+            add_buf_all(h5_f,xyz_dset,intensity_dset,color_dset,label_dset,data_buf,label_buf,k,buf_rows)
+            cut_redundance(xyz_dset,k+1)
+            cut_redundance(intensity_dset,k+1)
+            cut_redundance(color_dset,k+1)
+            cut_redundance(label_dset,k+1)
+
+            print('having read %d lines from %s \n'%(k+1,data_fn))
+            #print('h5 file line num = %d'%(xyz_dset.shape[0]))
+
+def cut_redundance(dset,file_rows):
+    if dset.shape[0] > file_rows:
+        dset.resize((file_rows,dset.shape[1]))
+
+def add_buf_all(h5_f,xyz_dset,intensity_dset,color_dset,label_dset,data_buf,label_buf,k,buf_rows):
+    k_buf = k%buf_rows
+    start = int(k/buf_rows)*buf_rows
+    end = k+1
+    #print( 'start = %d, end = %d'%(start,end))
+    add_buf(xyz_dset,data_buf[0:k_buf+1,0:3],start,end)
+    add_buf(intensity_dset,data_buf[0:k_buf+1,3:4],start,end)
+    add_buf(color_dset,data_buf[0:k_buf+1,4:7],start,end)
+    add_buf(label_dset,label_buf[0:k_buf+1,0:1],start,end)
+    h5_f.flush()
+    #print('flushing k = ',k)
+
+
+def add_buf(dset,new_data,start,end):
+    if dset.shape[0] < end:
+        dset.resize((end,dset.shape[1]))
+    dset[start:end,:] = new_data
+
 #-------------------------------------------------------------------------------
 # TEST functions
 #-------------------------------------------------------------------------------
@@ -432,12 +539,20 @@ def test_count_labels_num():
     T = time.time() - start_time
     print('\nT = ',T)
 
+def test_gen_rawETH_to_h5():
+    labels_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A'
+    labels_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A'
+    label_files_glob = os.path.join(labels_folder,'*.labels')
+    line_num_limit = 1300005
+    gen_rawETH_to_h5(label_files_glob,line_num_limit)
+
+
+
 
 if __name__ == '__main__':
     ''' test functions
     '''
-    test_count_labels_num()
-
+    test_gen_rawETH_to_h5()
 
     print('\n OK')
 
