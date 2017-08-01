@@ -10,6 +10,7 @@ import glob
 import time
 import multiprocessing as mp
 import itertools
+import argparse
 
 SAMPLING_BIN = os.path.join(BASE_DIR, 'third_party/mesh_sampling/build/pcsample')
 
@@ -437,32 +438,42 @@ def gen_rawETH_to_h5(label_files_glob,line_num_limit=None):
     h5_chunk_row_step_1G = h5_chunk_row_step_1M * 1000
     h5_chunk_row_step =  h5_chunk_row_step_10M
     h5_default_rows = h5_chunk_row_step * 5
+    #compress = 1
+    #print('compression_opts = ',compress)
 
     label_files_list = glob.glob(label_files_glob)
     data_files_list, h5_files_list = clean_label_files_list(label_files_list)
     print('%d data-label files detected'%(len(label_files_list)))
+    for lf in label_files_list:
+        print('\t%s'%(lf))
 
     for i,label_fn in enumerate(label_files_list):
         data_fn = data_files_list[i]
         h5_fn = h5_files_list[i]
         with open(data_fn,'r') as data_f, open(label_fn,'r') as label_f, h5py.File(h5_fn,'w') as h5_f:
             data_label_fs = itertools.izip(data_f,label_f)
+
+            h5_f.attrs['file info'] = 'All the datasets are raw data downloaded from the ETH web'
             if 'xyz' in h5_f:
                 xyz_dset = h5_f['xyz']
             else:
                 xyz_dset = h5_f.create_dataset('xyz',shape=(h5_default_rows,3),maxshape=(None,3),dtype=np.float32,chunks=(h5_chunk_row_step,3))
+                #xyz_dset = h5_f.create_dataset('xyz',shape=(h5_default_rows,3),maxshape=(None,3),dtype=np.float32,chunks=(h5_chunk_row_step,3), compression='gzip',compression_opts=compress)
             if 'intensity' in h5_f:
                 intensity_dset = h5_f['intensity']
             else:
                 intensity_dset = h5_f.create_dataset('intensity',shape=(h5_default_rows,1),maxshape=(None,1),dtype=np.int32,chunks=(h5_chunk_row_step,1))
+                #intensity_dset = h5_f.create_dataset('intensity',shape=(h5_default_rows,1),maxshape=(None,1),dtype=np.int32,chunks=(h5_chunk_row_step,1), compression='gzip',compression_opts=compress)
             if 'color' in h5_f:
                 color_dset = h5_f['color']
             else:
-                color_dset = h5_f.create_dataset('color',shape=(h5_default_rows,3),maxshape=(None,3),dtype=np.int8,chunks=(h5_chunk_row_step,3))
+                color_dset = h5_f.create_dataset('color',shape=(h5_default_rows,3),maxshape=(None,3),dtype=np.uint8,chunks=(h5_chunk_row_step,3))
+                #color_dset = h5_f.create_dataset('color',shape=(h5_default_rows,3),maxshape=(None,3),dtype=np.uint8,chunks=(h5_chunk_row_step,3), compression='gzip',compression_opts=compress)
             if 'label' in h5_f:
                 label_dset = h5_f['label']
             else:
-                label_dset = h5_f.create_dataset('label',shape=(h5_default_rows,1),maxshape=(None,1),dtype=np.int8,chunks=(h5_chunk_row_step,1))
+                label_dset = h5_f.create_dataset('label',shape=(h5_default_rows,1),maxshape=(None,1),dtype=np.uint8,chunks=(h5_chunk_row_step,1))
+                #label_dset = h5_f.create_dataset('label',shape=(h5_default_rows,1),maxshape=(None,1),dtype=np.uint8,chunks=(h5_chunk_row_step,1), compression='gzip',compression_opts=compress)
 
             buf_rows = h5_chunk_row_step
             data_buf = np.zeros((buf_rows,7),np.float32)
@@ -481,9 +492,9 @@ def gen_rawETH_to_h5(label_files_glob,line_num_limit=None):
                     add_buf(label_dset,label_buf[:,0:1],start,end)
                     h5_f.flush()
 
-                    if line_num_limit != None and end >= line_num_limit:
-                        print('break at k= ',k)
-                        break
+                if line_num_limit != None and k+1 >= line_num_limit:
+                    print('break at k= ',k)
+                    break
 
             add_buf_all(h5_f,xyz_dset,intensity_dset,color_dset,label_dset,data_buf,label_buf,k,buf_rows)
             cut_redundance(xyz_dset,k+1)
@@ -509,7 +520,6 @@ def add_buf_all(h5_f,xyz_dset,intensity_dset,color_dset,label_dset,data_buf,labe
     add_buf(label_dset,label_buf[0:k_buf+1,0:1],start,end)
     h5_f.flush()
     #print('flushing k = ',k)
-
 
 def add_buf(dset,new_data,start,end):
     if dset.shape[0] < end:
@@ -539,12 +549,14 @@ def test_count_labels_num():
     T = time.time() - start_time
     print('\nT = ',T)
 
-def test_gen_rawETH_to_h5():
-    labels_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A'
-    labels_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A'
-    label_files_glob = os.path.join(labels_folder,'*.labels')
+def test_gen_rawETH_to_h5(ETH_raw_labels_glob=None):
+    if ETH_raw_labels_glob == None:
+        labels_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A'
+        labels_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A'
+        #labels_folder = '/other/ETH_Semantic3D_Dataset/training/part_A'
+        ETH_raw_labels_glob = os.path.join(labels_folder,'*.labels')
     line_num_limit = 1300005
-    gen_rawETH_to_h5(label_files_glob,line_num_limit)
+    gen_rawETH_to_h5(ETH_raw_labels_glob)
 
 
 
@@ -552,8 +564,14 @@ def test_gen_rawETH_to_h5():
 if __name__ == '__main__':
     ''' test functions
     '''
-    test_gen_rawETH_to_h5()
+    parser = argparse.ArgumentParser(description='input the ETH path')
+    parser.add_argument('--ETH_raw_labels_glob',type = str,
+                        default='/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A/AA/*.labels')
+    FLAGS = parser.parse_args()
 
+    start = time.time()
+    test_gen_rawETH_to_h5(FLAGS.ETH_raw_labels_glob)
+    print('T = ',time.time()-start)
     print('\n OK')
 
 
