@@ -529,6 +529,7 @@ def add_buf(dset,new_data,start,end):
 #-------------------------------------------------------------------------------
 # TEST functions
 #-------------------------------------------------------------------------------
+
 def test_split_along_dim():
     filename = '/home/x/Research/pointnet/data/Stanford3dDataset_v1.2_Aligned_Version/Area_6/conferenceRoom_1/test.txt'
     filename = '/home/x/Research/pointnet/sem_seg/log6/dump/Area_6_office_10_pred.obj'
