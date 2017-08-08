@@ -18,7 +18,8 @@ import argparse
 START_T = time.time()
 
 class OUTDOOR_DATA_PREP():
-    ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
+    ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
+    ETH_training_partBh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_B_rawh5'
     h5_chunk_row_step_1M = 50*1000
     h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
     h5_chunk_row_step_100M = h5_chunk_row_step_1M * 100
@@ -59,8 +60,8 @@ class OUTDOOR_DATA_PREP():
                 break
         max_str = '  '.join([ str(e) for e in max_xyz ])
         min_str = '  '.join([ str(e) for e in min_xyz ])
-        xyz_dset.attrs['max'] = max_str
-        xyz_dset.attrs['min'] = min_str
+        xyz_dset.attrs['max'] = max_xyz
+        xyz_dset.attrs['min'] = min_xyz
         print('File: %s\n\tmax_str=%s\n\tmin_str=%s'%(h5_file_name,max_str,min_str) )
         print('T=',time.time()-begin)
 
@@ -181,6 +182,216 @@ class OUTDOOR_DATA_PREP():
         return data_files_list, h5_files_list
 
 
+    def get_blocked_dset(self,block_k,i_xyz=None):
+        dset_name = str(block_k)
+        #if self.block_dsets[block_k]!=None:
+        if dset_name in self.h5f_blocked:
+            #return self.block_dsets[block_k]
+            return self.h5f_blocked[dset_name]
+        rows_default = self.h5_chunk_row_step_100M
+        dset = self.h5f_blocked.create_dataset( dset_name,shape=(rows_default,9),\
+                maxshape=(None,9),dtype=np.float32,chunks=(self.h5_chunk_row_step,9) )
+        dset.attrs['valid_num']=0
+        block_scope_k = np.zeros((2,3))
+        if i_xyz==None:
+            i_xyz = self.get_i_xyz(block_k)
+        block_k = int( i_xyz[0]*self.block_nums[1]*self.block_nums[2] + i_xyz[1]*self.block_nums[2] + i_xyz[2] )
+        block_scope_k[0,:] = i_xyz * self.block_step
+        block_scope_k[1,:] = (i_xyz+1) * self.block_step
+        dset.attrs['i_xyz'] = i_xyz
+        dset.attrs['scope'] = block_scope_k
+        #self.block_dsets[block_k]=dset
+        self.h5f_blocked.flush()
+        return dset
+
+    def get_i_xyz(self,block_k):
+        i_xyz = np.zeros(3,np.int64)
+        i_xyz[2] = block_k % self.block_nums[2]
+        k = int( block_k / self.block_nums[2] )
+        i_xyz[1] = k % self.block_nums[1]
+        k = int( k / self.block_nums[1] )
+        i_xyz[0] = k % self.block_nums[0]
+        return i_xyz
+
+    def get_block_k(self,i_xyz):
+        i_xyz = i_xyz.astype(np.uint64)
+        block_k = int( i_xyz[0]*self.block_nums[1]*self.block_nums[2] + i_xyz[1]*self.block_nums[2] + i_xyz[2] )
+        return block_k
+
+    def get_block_index(self,xyz_k):
+        i_xyz = ( (xyz_k - self.xyz_min)/self.block_step ).astype(np.int64)
+        block_k = self.get_block_k(i_xyz)
+
+
+        i_xyz_test = self.get_i_xyz(block_k)
+        if (i_xyz_test != i_xyz).any():
+            print('get i_xyz ERROR!')
+
+
+        return block_k
+
+
+    def sort_to_blocks(self,file_name):
+        '''split th ewhole scene to space sorted small blocks
+        The whole scene is a group. Each block is one dataset in the group.
+        The block attrs represents the field.
+        '''
+        self.block_step = np.ones((3))*20
+        IsMultiProcess = False
+        self.row_num_limit = 1000*1000
+
+        blocked_file_name = os.path.splitext(file_name)[0]+'_blocked.h5'
+        with h5py.File(blocked_file_name,'w') as self.h5f_blocked,  h5py.File(file_name,'r') as h5_f:
+            dset_list = [n for n in h5_f]
+            #for dset_name in dset_list:
+            xyz_dset = h5_f['xyz']
+            label_dset = h5_f['label']
+            color_dset = h5_f['color']
+            intensity_dset = h5_f['intensity']
+            self.h5f_blocked.attrs['elements'] = 'xyz-color-label-intensity'
+            self.total_row_num = xyz_dset.shape[0]
+            self.xyz_max = xyz_dset.attrs['max']
+            self.xyz_min = xyz_dset.attrs['min']
+            xyz_scope = self.xyz_max - self.xyz_min
+
+            self.block_nums = np.ceil(xyz_scope / self.block_step).astype(np.int32)
+            blocks_N = self.block_nums[0] * self.block_nums[1] * self.block_nums[2]
+            self.h5f_blocked.attrs['xyz_max'] = self.xyz_max
+            self.h5f_blocked.attrs['xyz_min'] = self.xyz_min
+            self.h5f_blocked.attrs['xyz_scope'] = xyz_scope
+            self.h5f_blocked.attrs['block_step'] = self.block_step
+            self.h5f_blocked.attrs['max_blocks_N'] = blocks_N
+            print('blocks_N = ',blocks_N)
+            #self.block_scopes = np.zeros((blocks_N,2,3))
+            #xyz_k_last = np.array([0,0,0])
+
+            row_step = self.h5_chunk_row_step_1M
+            #row_step = 1000
+            if IsMultiProcess:
+                num_workers = min(mp.cpu_count(),6)
+                self.num_workers = num_workers
+                manager = mp.Manager()
+                #self.block_dsets = manager.list([None]*blocks_N)
+                row_queue = mp.Queue(num_workers)
+
+                pool = []
+                for i in range(num_workers):
+                    p = mp.Process(target=self.sort_onerow_inqueue_multi,args=(row_queue,))
+                    p.start()
+                    pool.append(p)
+            else:
+                raw_buf = np.zeros((row_step,9))
+                pass
+                #self.block_dsets = [None]*blocks_N
+
+
+            for k in range(0,xyz_dset.shape[0],row_step):
+                end = min(k+row_step,xyz_dset.shape[0])
+                t0_k = time.time()
+                #print('start read %d:%d'%(k,end))
+                raw_buf[:,0:3] = xyz_dset[k:end,:]
+                raw_buf[:,3:6] = color_dset[k:end,:]
+                raw_buf[:,6:7] = label_dset[k:end,:]
+                raw_buf[:,7:8] = intensity_dset[k:end,:]
+                t1_k = time.time()
+                #print('all read T=',time.time()-read_t0)
+
+#                for i in range(xyz_buf.shape[0]):
+                t2_0_k = time.time()
+#                    xyz_c_l_i_buf_i = np.hstack((xyz_buf[i,:],color_buf[i,:],label_buf[i,:],intensity_buf[i,:], k+i ))
+#                    if not IsMultiProcess:
+#                        self.sort_one_row(xyz_c_l_i_buf_i)  #6 sec
+#                    else:
+#                        row = (k+i,xyz_c_l_i_buf_i)
+#                        row_queue.put(row)
+#
+
+
+
+                sorted_buf_dic = self.sort_buf(raw_buf,k)
+                t2_1_k = time.time()
+                self.h5_write_buf(sorted_buf_dic)
+
+                t2_2_k = time.time()
+                self.h5f_blocked.flush()
+                if int(k/row_step) % 1 == 0:
+                     print('line: [%d,%d] blocked   block_T=%f s, read_T=%f ms, row_t = %f ms, write_t= %f ms'%\
+                           (k,end,time.time()-t0_k,(t1_k-t0_k)*1000,(t2_1_k-t2_0_k)*1000, (t2_2_k-t2_1_k)*1000 ))
+                if hasattr(self,'row_num_limit') and self.row_num_limit!=None and  k+row_step>=self.row_num_limit:
+                    print('break read at k= ',k)
+                    break
+
+            if IsMultiProcess:
+                for j in range(self.num_workers):
+                    row_queue.put(None)
+                for p in pool:
+                    p.join()
+
+            for i in range(blocks_N):
+                if str(i) in self.h5f_blocked:
+                #if self.block_dsets[i] != None:
+                    dset_i = self.h5f_blocked[str(i)]
+                    valid_n = dset_i.attrs['valid_num']
+                    if dset_i.shape[0] > valid_n:
+                        #print('original shape = ',self.block_dsets[i].shape)
+                        dset_i.resize( (valid_n,dset_i.shape[1]) )
+                        #print('resized to ',self.block_dsets[i].shape)
+
+    def sort_onerow_inqueue_multi(self,row_queue):
+        while True:
+            row = row_queue.get()
+            if row == None:
+                print('Meet the None row, in id: %d'%(os.getpid()))
+                return
+            k = row[0]
+            xyz_c_l_i_buf_i = row[1]
+            self.sort_one_row(xyz_c_l_i_buf_i)
+
+    def sort_buf(self,raw_buf,buf_start_k):
+        sorted_buf_dic = {}
+        for i in range(raw_buf.shape[0]):
+            block_k = self.get_block_index(raw_buf[i,0:3])
+            raw_buf[i,8] = block_k
+            row = raw_buf[i,:].reshape(1,-1)
+            row[0,8] = i+buf_start_k
+            if not block_k in sorted_buf_dic:
+                sorted_buf_dic[block_k]=[]
+            sorted_buf_dic[block_k].append(row)
+        for key in sorted_buf_dic:
+            sorted_buf_dic[key] = np.concatenate(sorted_buf_dic[key],axis=0)
+        return sorted_buf_dic
+
+
+
+    def h5_write_buf(self,sorted_buf_dic):
+        for block_k in sorted_buf_dic:
+            dset_k =  self.get_blocked_dset(block_k)
+            valid_n = dset_k.attrs['valid_num']
+            new_valid_n = valid_n + sorted_buf_dic[block_k].shape[0]
+            if dset_k.shape[0] < new_valid_n:
+                dset_k.resize(( dset_k.shape[0]+self.h5_chunk_row_step_10M,dset_k.shape[1]))
+            dset_k[valid_n:new_valid_n,:] = sorted_buf_dic[block_k]
+            dset_k.attrs['valid_num'] = new_valid_n
+
+
+    def sort_one_row(self,xyz_c_l_i_buf_i):
+        block_k,i_xyz = self.get_block_index(xyz_c_l_i_buf_i[0:3])
+        dset_k =  self.get_blocked_dset(block_k,i_xyz)
+        valid_n = dset_k.attrs['valid_num']
+        if dset_k.shape[0] < valid_n +1:
+            dset_k.resize(( dset_k.shape[0]+self.h5_chunk_row_step_10M,dset_k.shape[1]))
+        dset_k[valid_n,:] = xyz_c_l_i_buf_i
+        dset_k.attrs['valid_num'] = valid_n+1
+
+
+
+#        valid_n = self.block_dsets[block_k].attrs['valid_num']
+#        if self.block_dsets[block_k].shape[0] < valid_n +1:
+#            self.block_dsets[block_k].resize(( self.block_dsets[block_k].shape[0]+self.h5_chunk_row_step_10M,self.block_dsets[block_k].shape[1]))
+#        self.block_dsets[block_k][valid_n,:] = xyz_c_l_i_buf_i
+#        self.block_dsets[block_k].attrs['valid_num'] = valid_n+1
+
+
 
     #-------------------------------------------------------------------------------
     '''
@@ -189,8 +400,8 @@ class OUTDOOR_DATA_PREP():
     #-------------------------------------------------------------------------------
 
     def DO_add_geometric_scope_file(self):
-        files_glob = os.path.join(self.ETH_training_partAh5_folder,'*.hdf5')
-        #files_glob = os.path.join(self.ETH_training_partAh5_folder,'bildstein_station5_xyz_intensity_rgb.hdf5')
+        files_glob = os.path.join(self.ETH_training_partBh5_folder,'*.hdf5')
+        #files_glob = os.path.join(self.ETH_training_partAh5_folder,'bildstein_station5_xyi_zntensity_rgb.hdf5')
         files_list = glob.glob(files_glob)
         print('%d files detected'%(len(files_list)))
 
@@ -216,14 +427,22 @@ class OUTDOOR_DATA_PREP():
         line_num_limit = None
         self.gen_rawETH_to_h5(ETH_raw_labels_glob)
 
+    def Do_sort_to_blocks(self):
+        partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
+        ETH_raw_h5_glob =glob.glob(  os.path.join(partAh5_folder,'bildstein_station5_xyz_intensity_rgb.hdf5') )
+        for fn in ETH_raw_h5_glob:
+            self.sort_to_blocks(fn)
+
+
 #-------------------------------------------------------------------------------
-'''
-main
-'''
 #-------------------------------------------------------------------------------
-if __name__ == '__main__':
+def main():
     outdoor_prep = OUTDOOR_DATA_PREP()
-    outdoor_prep.DO_add_geometric_scope_file()
+    outdoor_prep.Do_sort_to_blocks()
+    #outdoor_prep.DO_add_geometric_scope_file()
     #outdoor_prep.DO_gen_rawETH_to_h5()
+
+if __name__ == '__main__':
+    main()
     T = time.time() - START_T
     print('exit main, T = ',T)

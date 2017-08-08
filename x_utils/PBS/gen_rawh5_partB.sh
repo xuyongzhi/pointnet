@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -q normalbw
-#PBS -l walltime=3:00:00
+#PBS -l walltime=5:00:00
 #PBS -l mem=10GB
 #PBS -l jobfs=0GB
 #PBS -l ncpus=6
@@ -22,4 +22,4 @@ module load conda/analysis27
 module list
 
 
-python  ../data_prep_util.py  > out_ETH_rawh5_partA_h5.out
+python  ../outdor_data_prep_util_1.py  > out_ETH_rawh5_partB.log
