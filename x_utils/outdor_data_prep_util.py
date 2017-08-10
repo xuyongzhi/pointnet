@@ -18,6 +18,7 @@ import argparse
 START_T = time.time()
 
 class OUTDOOR_DATA_PREP():
+    Local_training_partAh5_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
     ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
     ETH_training_partBh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_B_rawh5'
     h5_chunk_row_step_1M = 50*1000
@@ -232,7 +233,7 @@ class OUTDOOR_DATA_PREP():
         The block attrs represents the field.
         '''
         self.block_step = np.ones((3))*20
-        IsMultiProcess = False
+#        IsMultiProcess = False
         self.row_num_limit = 1000*1000
 
         blocked_file_name = os.path.splitext(file_name)[0]+'_blocked.h5'
@@ -258,15 +259,14 @@ class OUTDOOR_DATA_PREP():
             self.h5f_blocked.attrs['max_blocks_N'] = blocks_N
             print('blocks_N = ',blocks_N)
 
-            row_step = self.h5_chunk_row_step_1M
-            row_step = self.h5_chunk_row_step_10M
+            row_step = self.h5_chunk_row_step_1M*8
             sorted_buf_dic = {}
-            if IsMultiProcess:
-                num_workers = min(mp.cpu_count(),6)
-                self.num_workers = num_workers
-                manager = mp.Manager()
-                row_queue = mp.Queue(num_workers)
-                sorted_buf_dic_mg = manager.dict()
+##            if IsMultiProcess:
+##                num_workers = min(mp.cpu_count(),6)
+##                self.num_workers = num_workers
+##                manager = mp.Manager()
+##                row_queue = mp.Queue(num_workers)
+##                sorted_buf_dic_mg = manager.dict()
 
 
             raw_buf = np.zeros((row_step,9))
@@ -286,35 +286,35 @@ class OUTDOOR_DATA_PREP():
 
                 t2_0_k = time.time()
 
-                if not IsMultiProcess:
-                    sorted_buf_dic={}
-                    self.sort_buf(raw_buf,k,sorted_buf_dic)
-                else:
-                    sorted_buf_dic_mg = manager.dict()
-                    pool = []
-                    for i in range(num_workers):
-                        p = mp.Process(target=self.sort_onerow_inqueue_multi,args=(row_queue,sorted_buf_dic_mg,))
-                        p.start()
-                        pool.append(p)
-                    for j in range(row_step):
-                        row_queue.put(raw_buf[j,:])
-                        print('put ',j)
-
-                    for j in range(self.num_workers):
-                        row_queue.put(None)
-                    print('put all')
-                    for p in pool:
-                        p.join()
-                    sorted_buf_dic = sorted_buf_dic_mg._getvalue()
+##                if not IsMultiProcess:
+                sorted_buf_dic={}
+                self.sort_buf(raw_buf,k,sorted_buf_dic)
+##                else:
+##                    sorted_buf_dic_mg = manager.dict()
+##                    pool = []
+##                    for i in range(num_workers):
+##                        p = mp.Process(target=self.sort_onerow_inqueue_multi,args=(row_queue,sorted_buf_dic_mg,))
+##                        p.start()
+##                        pool.append(p)
+##                    for j in range(row_step):
+##                        row_queue.put(raw_buf[j,:])
+##                        print('put ',j)
+##
+##                    for j in range(self.num_workers):
+##                        row_queue.put(None)
+##                    print('put all')
+##                    for p in pool:
+##                        p.join()
+##                    sorted_buf_dic = sorted_buf_dic_mg._getvalue()
 
                 t2_1_k = time.time()
                 self.h5_write_buf(sorted_buf_dic)
 
                 t2_2_k = time.time()
                 self.h5f_blocked.flush()
-#                if int(k/row_step) % 1 == 0:
-#                     print('line: [%d,%d] blocked   block_T=%f s, read_T=%f ms, cal_t = %f ms, write_t= %f ms'%\
-#                           (k,end,time.time()-t0_k,(t1_k-t0_k)*1000,(t2_1_k-t2_0_k)*1000, (t2_2_k-t2_1_k)*1000 ))
+                if int(k/row_step) % 1 == 0:
+                     print('line: [%d,%d] blocked   block_T=%f s, read_T=%f ms, cal_t = %f ms, write_t= %f ms'%\
+                           (k,end,time.time()-t0_k,(t1_k-t0_k)*1000,(t2_1_k-t2_0_k)*1000, (t2_2_k-t2_1_k)*1000 ))
                 if hasattr(self,'row_num_limit') and self.row_num_limit!=None and  k+row_step>=self.row_num_limit:
                     print('break read at k= ',k)
                     break
@@ -330,34 +330,34 @@ class OUTDOOR_DATA_PREP():
                         dset_i.resize( (valid_n,dset_i.shape[1]) )
                         #print('resized to ',self.block_dsets[i].shape)
 
-    def sort_onerow_inqueue_multi(self,row_queue,sorted_buf_dic):
-        while True:
-            row = row_queue.get()
-            if row is None:
-                sorted_buf_dic.clear()
-                print('Meet the None row, in id: %d'%(os.getpid()))
-                return
-            #print(row)
-            self.sort_one_row(row,sorted_buf_dic)
-
-    def sort_one_row(self,raw_buf_i,sorted_buf_dic):
-        block_k = self.get_block_index(raw_buf_i[0:3])
-        dset_k =  self.get_blocked_dset(block_k)
-        row = raw_buf_i.reshape(1,-1)
-        if not block_k in sorted_buf_dic:
-            buf_k = []
-        else:
-            #sorted_buf_dic[block_k]=[]
-            buf_k = sorted_buf_dic[block_k]
-        buf_k.append(row)
-        dic_k = {block_k:buf_k}
-        sorted_buf_dic.update(dic_k)
-        #print(row)
-        #print(len(sorted_buf_dic[block_k]))
+##    def sort_onerow_inqueue_multi(self,row_queue,sorted_buf_dic):
+##        while True:
+##            row = row_queue.get()
+##            if row is None:
+##                sorted_buf_dic.clear()
+##                print('Meet the None row, in id: %d'%(os.getpid()))
+##                return
+##            #print(row)
+##            self.sort_one_row(row,sorted_buf_dic)
+##
+##    def sort_one_row(self,raw_buf_i,sorted_buf_dic):
+##        block_k = self.get_block_index(raw_buf_i[0:3])
+##        dset_k =  self.get_blocked_dset(block_k)
+##        row = raw_buf_i.reshape(1,-1)
+##        if not block_k in sorted_buf_dic:
+##            buf_k = []
+##        else:
+##            #sorted_buf_dic[block_k]=[]
+##            buf_k = sorted_buf_dic[block_k]
+##        buf_k.append(row)
+##        dic_k = {block_k:buf_k}
+##        sorted_buf_dic.update(dic_k)
+##        #print(row)
+##        #print(len(sorted_buf_dic[block_k]))
 
     def get_block_index_multi(self,raw_buf):
         block_ks = mp.Array('i',raw_buf.shape[0])
-        num_workers = 10
+        num_workers = 2
         step = int(raw_buf.shape[0]/num_workers)
         pool = []
         for i in range(0,raw_buf.shape[0],step):
@@ -375,7 +375,7 @@ class OUTDOOR_DATA_PREP():
             sub_block_ks[i] = self.get_block_index(sub_buf_xyz[i,0:3])
 
     def sort_buf(self,raw_buf,buf_start_k,sorted_buf_dic):
-        t0 = time.time()
+        #t0 = time.time()
         IsMulti = True
         if IsMulti:
             block_ks = self.get_block_index_multi(raw_buf)
@@ -385,7 +385,7 @@ class OUTDOOR_DATA_PREP():
                 block_ks[j] = self.get_block_index(raw_buf[j,0:3])
 
 
-        t1 = time.time()
+        #t1 = time.time()
         for i in range(raw_buf.shape[0]):
             block_k = block_ks[i]
             #raw_buf[i,8] = block_k
@@ -394,8 +394,8 @@ class OUTDOOR_DATA_PREP():
             if not block_k in sorted_buf_dic:
                 sorted_buf_dic[block_k]=[]
             sorted_buf_dic[block_k].append(row)
-        t2 = time.time()
-        print('t1 = %d ms, t2 = %d ms'%( (t1-t0)*1000,(t2-t1)*1000 ))
+        #t2 = time.time()
+        #print('t1 = %d ms, t2 = %d ms'%( (t1-t0)*1000,(t2-t1)*1000 ))
 
 
     def h5_write_buf(self,sorted_buf_dic):
@@ -418,8 +418,9 @@ class OUTDOOR_DATA_PREP():
     #-------------------------------------------------------------------------------
 
     def DO_add_geometric_scope_file(self):
-        files_glob = os.path.join(self.ETH_training_partBh5_folder,'*.hdf5')
-        #files_glob = os.path.join(self.ETH_training_partAh5_folder,'bildstein_station5_xyi_zntensity_rgb.hdf5')
+        #files_glob = os.path.join(self.ETH_training_partBh5_folder,'*.hdf5')
+        #files_glob = os.path.join(self.ETH_training_partAh5_folder,'*.hdf5')
+        files_glob = os.path.join(self.Local_training_partAh5_folder,'*.hdf5')
         files_list = glob.glob(files_glob)
         print('%d files detected'%(len(files_list)))
 
@@ -447,6 +448,7 @@ class OUTDOOR_DATA_PREP():
 
     def Do_sort_to_blocks(self):
         partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
+        partAh5_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
         ETH_raw_h5_glob =glob.glob(  os.path.join(partAh5_folder,'bildstein_station5_xyz_intensity_rgb.hdf5') )
         for fn in ETH_raw_h5_glob:
             self.sort_to_blocks(fn)
