@@ -1,9 +1,9 @@
 #!/bin/bash
 #PBS -q normalbw
-#PBS -l walltime=5:00:00
+#PBS -l walltime=24:00:00
 #PBS -l mem=10GB
 #PBS -l jobfs=0GB
-#PBS -l ncpus=6
+#PBS -l ncpus=2
 ## For licensed software, you have to specify it to get the job running. For unlicensed software, you should also specify it to help us analyse the software usage on our system.
 #PBS -l software=tensorflow/1.0.1-python2.7
 
@@ -22,4 +22,4 @@ module load conda/analysis27
 module list
 
 
-python  ../outdor_data_prep_util_1.py  > out_ETH_rawh5_partB.log
+python  ../outdor_data_prep_util.py  > out_sort_block.log

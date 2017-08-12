@@ -189,9 +189,14 @@ class OUTDOOR_DATA_PREP():
         if dset_name in self.h5f_blocked:
             #return self.block_dsets[block_k]
             return self.h5f_blocked[dset_name]
-        rows_default = self.h5_chunk_row_step_100M
-        dset = self.h5f_blocked.create_dataset( dset_name,shape=(rows_default,9),\
-                maxshape=(None,9),dtype=np.float32,chunks=(self.h5_chunk_row_step,9) )
+        rows_default = self.h5_chunk_row_step_1M
+        n = 9
+        if self.check_sorted_blocks:
+            n = 10
+#        dset = self.h5f_blocked.create_dataset( dset_name,shape=(rows_default,n),\
+#                maxshape=(None,n),dtype=np.float32,chunks=(self.h5_chunk_row_step_1M/5,n) )
+        dset = self.h5f_blocked.create_dataset( dset_name,shape=(rows_default,n),\
+                maxshape=(None,n),dtype=np.float32,compression="gzip"  )
         dset.attrs['valid_num']=0
         block_scope_k = np.zeros((2,3))
         i_xyz = self.get_i_xyz(block_k)
@@ -200,8 +205,6 @@ class OUTDOOR_DATA_PREP():
         block_scope_k[1,:] = (i_xyz+1) * self.block_step + self.xyz_min
         dset.attrs['i_xyz'] = i_xyz
         dset.attrs['xyz_scope'] = block_scope_k
-        #self.block_dsets[block_k]=dset
-        self.h5f_blocked.flush()
         return dset
 
     def get_i_xyz(self,block_k):
@@ -232,9 +235,10 @@ class OUTDOOR_DATA_PREP():
         The whole scene is a group. Each block is one dataset in the group.
         The block attrs represents the field.
         '''
-        self.block_step = np.ones((3))*20
-#        IsMultiProcess = False
-        self.row_num_limit = 1000*1000
+        self.block_step = np.ones((3))*0.5
+        print('block step = ',self.block_step)
+        self.check_sorted_blocks = False
+        self.row_num_limit = None
 
         blocked_file_name = os.path.splitext(file_name)[0]+'_blocked.h5'
         with h5py.File(blocked_file_name,'w') as self.h5f_blocked,  h5py.File(file_name,'r') as h5_f:
@@ -244,7 +248,14 @@ class OUTDOOR_DATA_PREP():
             label_dset = h5_f['label']
             color_dset = h5_f['color']
             intensity_dset = h5_f['intensity']
-            self.h5f_blocked.attrs['elements'] = 'xyz-color-label-intensity-raw_i'
+
+            #self.row_num_limit = int(xyz_dset.shape[0]/20)
+
+            if not self.check_sorted_blocks:
+                self.h5f_blocked.attrs['elements'] = 'xyz-color-label-intensity-block_k'
+            else:
+                self.h5f_blocked.attrs['elements'] = 'xyz-color-label-intensity-block_k-raw_k'
+
             self.total_row_num = xyz_dset.shape[0]
             self.xyz_max = xyz_dset.attrs['max']
             self.xyz_min = xyz_dset.attrs['min']
@@ -257,103 +268,51 @@ class OUTDOOR_DATA_PREP():
             self.h5f_blocked.attrs['xyz_scope'] = xyz_scope
             self.h5f_blocked.attrs['block_step'] = self.block_step
             self.h5f_blocked.attrs['max_blocks_N'] = blocks_N
-            print('blocks_N = ',blocks_N)
+            print('max blocks_N = ',blocks_N)
 
-            row_step = self.h5_chunk_row_step_1M*8
+            row_step = self.h5_chunk_row_step_1M
             sorted_buf_dic = {}
-##            if IsMultiProcess:
-##                num_workers = min(mp.cpu_count(),6)
-##                self.num_workers = num_workers
-##                manager = mp.Manager()
-##                row_queue = mp.Queue(num_workers)
-##                sorted_buf_dic_mg = manager.dict()
-
-
-            raw_buf = np.zeros((row_step,9))
-
 
             for k in range(0,xyz_dset.shape[0],row_step):
                 end = min(k+row_step,xyz_dset.shape[0])
-                t0_k = time.time()
+                n = 9
+                if self.check_sorted_blocks:
+                    n = 10
+                raw_buf = np.zeros((end-k,n))
+                #t0_k = time.time()
                 #print('start read %d:%d'%(k,end))
                 raw_buf[:,0:3] = xyz_dset[k:end,:]
                 raw_buf[:,3:6] = color_dset[k:end,:]
                 raw_buf[:,6:7] = label_dset[k:end,:]
                 raw_buf[:,7:8] = intensity_dset[k:end,:]
-                raw_buf[:,8] = np.arange(raw_buf.shape[0]) + k
-                t1_k = time.time()
+                if self.check_sorted_blocks:
+                    raw_buf[:,9] = np.arange(raw_buf.shape[0]) + k
+                #t1_k = time.time()
                 #print('all read T=',time.time()-read_t0)
 
-                t2_0_k = time.time()
+                #t2_0_k = time.time()
 
-##                if not IsMultiProcess:
                 sorted_buf_dic={}
                 self.sort_buf(raw_buf,k,sorted_buf_dic)
-##                else:
-##                    sorted_buf_dic_mg = manager.dict()
-##                    pool = []
-##                    for i in range(num_workers):
-##                        p = mp.Process(target=self.sort_onerow_inqueue_multi,args=(row_queue,sorted_buf_dic_mg,))
-##                        p.start()
-##                        pool.append(p)
-##                    for j in range(row_step):
-##                        row_queue.put(raw_buf[j,:])
-##                        print('put ',j)
-##
-##                    for j in range(self.num_workers):
-##                        row_queue.put(None)
-##                    print('put all')
-##                    for p in pool:
-##                        p.join()
-##                    sorted_buf_dic = sorted_buf_dic_mg._getvalue()
 
-                t2_1_k = time.time()
+                #t2_1_k = time.time()
                 self.h5_write_buf(sorted_buf_dic)
 
                 t2_2_k = time.time()
-                self.h5f_blocked.flush()
                 if int(k/row_step) % 1 == 0:
-                     print('line: [%d,%d] blocked   block_T=%f s, read_T=%f ms, cal_t = %f ms, write_t= %f ms'%\
-                           (k,end,time.time()-t0_k,(t1_k-t0_k)*1000,(t2_1_k-t2_0_k)*1000, (t2_2_k-t2_1_k)*1000 ))
-                if hasattr(self,'row_num_limit') and self.row_num_limit!=None and  k+row_step>=self.row_num_limit:
-                    print('break read at k= ',k)
+                    print('%%%.1f  line[ %d:%d ] block_N = %d'%(100.0*end/xyz_dset.shape[0], k,end,len(sorted_buf_dic)))
+                     #print('line: [%d,%d] blocked   block_T=%f s, read_T=%f ms, cal_t = %f ms, write_t= %f ms'%\
+                           #(k,end,time.time()-t0_k,(t1_k-t0_k)*1000,(t2_1_k-t2_0_k)*1000, (t2_2_k-t2_1_k)*1000 ))
+                if hasattr(self,'row_num_limit') and self.row_num_limit!=None and  end>=self.row_num_limit:
+                    print('break read at k= ',end)
                     break
 
-
-            for i in range(blocks_N):
-                if str(i) in self.h5f_blocked:
-                #if self.block_dsets[i] != None:
-                    dset_i = self.h5f_blocked[str(i)]
-                    valid_n = dset_i.attrs['valid_num']
-                    if dset_i.shape[0] > valid_n:
-                        #print('original shape = ',self.block_dsets[i].shape)
-                        dset_i.resize( (valid_n,dset_i.shape[1]) )
-                        #print('resized to ',self.block_dsets[i].shape)
-
-##    def sort_onerow_inqueue_multi(self,row_queue,sorted_buf_dic):
-##        while True:
-##            row = row_queue.get()
-##            if row is None:
-##                sorted_buf_dic.clear()
-##                print('Meet the None row, in id: %d'%(os.getpid()))
-##                return
-##            #print(row)
-##            self.sort_one_row(row,sorted_buf_dic)
-##
-##    def sort_one_row(self,raw_buf_i,sorted_buf_dic):
-##        block_k = self.get_block_index(raw_buf_i[0:3])
-##        dset_k =  self.get_blocked_dset(block_k)
-##        row = raw_buf_i.reshape(1,-1)
-##        if not block_k in sorted_buf_dic:
-##            buf_k = []
-##        else:
-##            #sorted_buf_dic[block_k]=[]
-##            buf_k = sorted_buf_dic[block_k]
-##        buf_k.append(row)
-##        dic_k = {block_k:buf_k}
-##        sorted_buf_dic.update(dic_k)
-##        #print(row)
-##        #print(len(sorted_buf_dic[block_k]))
+            total_blocks_N = 0
+            for dset_name_i in self.h5f_blocked:
+                total_blocks_N += 1
+            print('total_blocks_N = ',total_blocks_N)
+        if self.check_sorted_blocks:
+            self.check_sorted_result(file_name,blocked_file_name)
 
     def get_block_index_multi(self,raw_buf):
         block_ks = mp.Array('i',raw_buf.shape[0])
@@ -362,7 +321,7 @@ class OUTDOOR_DATA_PREP():
         pool = []
         for i in range(0,raw_buf.shape[0],step):
             end = min( (i+1)*step, raw_buf.shape[0])
-            p = mp.Process(target=self.get_block_index_subbuf,args=(raw_buf[i:end,0:3],block_ks[i:end],) )
+            p = mp.Process(target=self.get_block_index_subbuf,args=(raw_buf[i:end,0:3],block_ks,i,) )
             p.start()
             pool.append(p)
         for p in pool:
@@ -370,9 +329,9 @@ class OUTDOOR_DATA_PREP():
         return block_ks
 
 
-    def get_block_index_subbuf(self,sub_buf_xyz,sub_block_ks):
+    def get_block_index_subbuf(self,sub_buf_xyz,block_ks,i_start):
         for i in range(sub_buf_xyz.shape[0]):
-            sub_block_ks[i] = self.get_block_index(sub_buf_xyz[i,0:3])
+            block_ks[i+i_start] = self.get_block_index(sub_buf_xyz[i,0:3])
 
     def sort_buf(self,raw_buf,buf_start_k,sorted_buf_dic):
         #t0 = time.time()
@@ -384,13 +343,11 @@ class OUTDOOR_DATA_PREP():
             for j in range(raw_buf.shape[0]):
                 block_ks[j] = self.get_block_index(raw_buf[j,0:3])
 
-
         #t1 = time.time()
         for i in range(raw_buf.shape[0]):
             block_k = block_ks[i]
-            #raw_buf[i,8] = block_k
+            raw_buf[i,8] = block_k
             row = raw_buf[i,:].reshape(1,-1)
-            #row[0,8] = i+buf_start_k
             if not block_k in sorted_buf_dic:
                 sorted_buf_dic[block_k]=[]
             sorted_buf_dic[block_k].append(row)
@@ -405,12 +362,19 @@ class OUTDOOR_DATA_PREP():
             dset_k =  self.get_blocked_dset(block_k)
             valid_n = dset_k.attrs['valid_num']
             new_valid_n = valid_n + sorted_buf_dic[block_k].shape[0]
-            if dset_k.shape[0] < new_valid_n:
-                dset_k.resize(( dset_k.shape[0]+self.h5_chunk_row_step_10M,dset_k.shape[1]))
+            while dset_k.shape[0] < new_valid_n:
+                dset_k.resize(( dset_k.shape[0]+self.h5_chunk_row_step_1M,dset_k.shape[1]))
             dset_k[valid_n:new_valid_n,:] = sorted_buf_dic[block_k]
             dset_k.attrs['valid_num'] = new_valid_n
 
+        for dset_name_i in self.h5f_blocked:
+            dset_i = self.h5f_blocked[dset_name_i]
+            valid_n = dset_i.attrs['valid_num']
+            if dset_i.shape[0] > valid_n:
+                #print('resizing block %s from %d to %d'%(dset_name_i,dset_i.shape[0],valid_n))
+                dset_i.resize( (valid_n,dset_i.shape[1]) )
 
+        self.h5f_blocked.flush()
     #-------------------------------------------------------------------------------
     '''
     Implement Functions
@@ -447,47 +411,55 @@ class OUTDOOR_DATA_PREP():
         self.gen_rawETH_to_h5(ETH_raw_labels_glob)
 
     def Do_sort_to_blocks(self):
-        partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
-        partAh5_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
-        ETH_raw_h5_glob =glob.glob(  os.path.join(partAh5_folder,'bildstein_station5_xyz_intensity_rgb.hdf5') )
+        partAh5_folder = self.ETH_training_partAh5_folder
+        #ETH_raw_h5_glob =glob.glob(  os.path.join(partAh5_folder,'untermaederbrunnen_station1_xyz_intensity_rgb.hdf5') )
+        ETH_raw_h5_glob =glob.glob(  os.path.join(partAh5_folder,'*.hdf5') )
         for fn in ETH_raw_h5_glob:
+            print('sort file: ',fn)
             self.sort_to_blocks(fn)
 
-    def check_sorted_result(self):
-        raw_file_name = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5/bildstein_station5_xyz_intensity_rgb.hdf5'
-        sorted_file_name = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5/bildstein_station5_xyz_intensity_rgb_blocked.h5'
+    def check_sorted_result(self,raw_file_name,sorted_file_name):
+        #raw_file_name = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5/bildstein_station5_xyz_intensity_rgb.hdf5'
+        #sorted_file_name = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5/bildstein_station5_xyz_intensity_rgb_blocked.h5'
+        print('\n started checking ',raw_file_name)
         with h5py.File(raw_file_name,'r') as raw_f, h5py.File(sorted_file_name,'r') as sorted_f:
             raw_xyz_set = raw_f['xyz']
             raw_color_set = raw_f['color']
             raw_label_set = raw_f['label']
             raw_intensity_set = raw_f['intensity']
+            check_flag = True
             for block_k in sorted_f:
+                #print('checing block %s'%(block_k))
                 dset_k = sorted_f[block_k]
                 step = max(int(dset_k.shape[0]/20),1)
                 for i in range(0,dset_k.shape[0],step):
                     sorted_d_i = dset_k[i,0:8]
-                    raw_k = dset_k[i,-1]
+                    raw_k = dset_k[i,9]
                     raw_d_i = np.concatenate(  [raw_xyz_set[raw_k,:],raw_color_set[raw_k,:],raw_label_set[raw_k,:],raw_intensity_set[raw_k,:]] )
                     error = raw_d_i - sorted_d_i
                     err = np.absolute( error ).sum()
                     if err != 0:
+                        check_flag = False
                         print('sorted error: block_k=%s,i=%d'%(block_k,i))
                     #else:
                         #print('i=%d checked'%(i))
-                self.check_sorted_dset_scope(dset_k)
-            print('all checked')
+                check_flag &= self.check_sorted_dset_scope(dset_k)
+            if check_flag:
+                print('\nall check passed')
+            else:
+                print('\n check failed')
     def check_sorted_dset_scope(self,dset):
         scope = dset.attrs['xyz_scope']
         xyz = dset[:,0:3]
         xyz_max = xyz.max(axis=0)
         xyz_min = xyz.min(axis=0)
-        #print('\nscope criterion = \n',scope)
-        #print('real min = \n',xyz_min,'\nreal max = \n',xyz_max)
         if (scope[1,:] > xyz_max).all() and (scope[0,:] < xyz_min).all():
             #print('scope checked OK')
             return True
         else:
             print('scope checked failed')
+            print('scope criterion = \n',scope)
+            print('real min = \n',xyz_min,'\nreal max = \n',xyz_max)
             return False
 
 #-------------------------------------------------------------------------------
@@ -495,7 +467,6 @@ class OUTDOOR_DATA_PREP():
 def main():
     outdoor_prep = OUTDOOR_DATA_PREP()
     outdoor_prep.Do_sort_to_blocks()
-    outdoor_prep.check_sorted_result()
 
     #outdoor_prep.DO_add_geometric_scope_file()
     #outdoor_prep.DO_gen_rawETH_to_h5()
