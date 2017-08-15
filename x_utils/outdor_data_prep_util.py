@@ -17,6 +17,22 @@ import argparse
 
 START_T = time.time()
 
+
+
+def get_i_xyz(block_k,block_dims_N):
+    i_xyz = np.zeros(3,np.int64)
+    i_xyz[2] = block_k % block_dims_N[2]
+    k = int( block_k / block_dims_N[2] )
+    i_xyz[1] = k % block_dims_N[1]
+    k = int( k / block_dims_N[1] )
+    i_xyz[0] = k % block_dims_N[0]
+    return i_xyz
+
+def get_block_dims_N(xyz_scope,block_stride):
+    block_dims_N = np.ceil(xyz_scope / block_stride).astype(np.int64)
+    block_dims_N = np.ceil(xyz_scope / block_stride).astype(np.int64)
+    return block_dims_N
+
 class Raw_H5f():
     def __init__(self,raw_h5_f):
         self.get_summary_info(raw_h5_f)
@@ -32,9 +48,72 @@ class Raw_H5f():
         self.xyz_min = self.xyz_dset.attrs['min']
         self.xyz_scope = self.xyz_max - self.xyz_min
 
-    def get_block_dims_N(self,block_step):
-        block_dims_N = np.ceil(self.xyz_scope / block_step).astype(np.int64)
-        return block_dims_N
+    def get_block_dims_N(self,block_stride):
+        return get_block_dims_N(self.xyz_scope,block_stride)
+
+class Sorted_H5f():
+    h5_chunk_row_step_1M = 50*1000
+    def __init__(self,sorted_h5f):
+        self.sorted_h5f = sorted_h5f
+        self.get_summary_info()
+
+    def get_summary_info(self):
+        root_attrs = ['xyz_max','xyz_min','total_row_num','xyz_scope','block_step','block_stride','block_dims_N']
+        for attr in root_attrs:
+            if attr in self.sorted_h5f.attrs:
+                setattr(self,attr,self.sorted_h5f.attrs[attr])
+                print(attr,getattr(self,attr) )
+
+    def copy_root_summaryinfo_from_another(self,h5f0):
+        self.sorted_h5f.attrs['xyz_max'] = h5f0.sorted_h5f.attrs['xyz_max']
+        self.sorted_h5f.attrs['xyz_min'] = h5f0.sorted_h5f.attrs['xyz_min']
+        self.sorted_h5f.attrs['xyz_scope'] = h5f0.sorted_h5f.attrs['xyz_scope']
+        if hasattr(h5f0.sorted_h5f,'total_row_num'):
+            self.sorted_h5f.attrs['total_row_num'] = h5f0.sorted_h5f.attrs['total_row_num']
+        elif hasattr(h5f0.sorted_h5f,'total_row_num'):
+            self.sorted_h5f.attrs['total_row_num'] = h5f0.sorted_h5f.attrs['raw_point_N']
+        self.get_summary_info()
+
+    def set_block_step(self,block_step,block_stride):
+        block_dims_N = get_block_dims_N(self.xyz_scope,block_stride)
+        #blocks_N = block_dims_N[0] * block_dims_N[1] * block_dims_N[2]
+        self.sorted_h5f.attrs['block_step'] = block_step
+        self.sorted_h5f.attrs['block_stride'] = block_stride
+        self.sorted_h5f.attrs['block_dims_N'] = block_dims_N
+        self.get_summary_info()
+
+    def get_blocked_dset(self,block_k):
+        dset_name = str(block_k)
+        if dset_name in self.sorted_h5f:
+            return self.sorted_h5f[dset_name]
+        rows_default = self.h5_chunk_row_step_1M
+        n = 9
+    #    if self.check_sorted_blocks:
+    #        n = 10
+
+    #    dset = self.h5f_blocked.create_dataset( dset_name,shape=(rows_default,n),\
+    #            maxshape=(None,n),dtype=np.float32,chunks=(self.h5_chunk_row_step_1M/5,n) )
+        dset = self.sorted_h5f.create_dataset( dset_name,shape=(rows_default,n),\
+                maxshape=(None,n),dtype=np.float32,compression="gzip"  )
+        dset.attrs['valid_num']=0
+        block_scope_k = np.zeros((2,3))
+        i_xyz = get_i_xyz(block_k,self.block_dims_N)
+        block_k = int( i_xyz[0]*self.block_dims_N[1]*self.block_dims_N[2] + i_xyz[1]*self.block_dims_N[2] + i_xyz[2] )
+        block_scope_k[0,:] = i_xyz * self.block_step + self.xyz_min
+        block_scope_k[1,:] = (i_xyz+1) * self.block_step + self.xyz_min
+        dset.attrs['i_xyz'] = i_xyz
+        dset.attrs['xyz_scope'] = block_scope_k
+        return dset
+
+    def append_to_dset(self,aim_block_k,source_dset):
+        aim_dset = self.get_blocked_dset(aim_block_k)
+        row_step = self.h5_chunk_row_step_1M * 10
+        row_N = source_dset.shape[0]
+        aim_dset.resize((row_N,aim_dset.shape[1]))
+        for k in range(0,row_N,row_step):
+            end = min(k+row_step,row_N)
+            aim_dset[k:end,:] = source_dset[k:end,:]
+            aim_dset.attrs['valid_num'] = end
 
 class OUTDOOR_DATA_PREP():
     Local_training_partAh5_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
@@ -52,6 +131,14 @@ class OUTDOOR_DATA_PREP():
         #print(self.ETH_training_partAh5_folder)
 
 
+    def Do_merge_blocks(self):
+        file_list = glob.glob( os.path.join(self.ETH_training_sortedAh5_folder,
+                                            'bildstein_station5_xyz_intensity_rgb_blocked.h5') )
+        block_step = np.array([1,1,1])*1.0
+        block_stride = block_step / 2
+
+        for file_name in file_list:
+            self.merge_blocks_to_new_step(file_name,block_step,block_stride)
 
     def test_sub_block_ks(self):
         sorted_rawh5f_name = os.path.join(self.ETH_training_sortedAh5_folder,'bildstein_station5_xyz_intensity_rgb_blocked.h5')
@@ -76,21 +163,46 @@ class OUTDOOR_DATA_PREP():
                 block_k0s_,i_xyz_0s_ = self.get_sub_block_ks(block_step0,block_stride0,xyz_scope0,block_k1_,block_step1,block_stride1)
                 if block_k0 not in block_k0s_:
                     check_flag = False
-
-
         if check_flag:
             print('all check passed')
         else:
             print('check failed')
 
-    def merge_blocks(self):
-        a=1
-        pass
+    def merge_blocks_to_new_step(self,base_file_name,larger_step,larger_stride):
+        '''merge blocks of sorted raw h5f to get new larger step
+        '''
+        new_name = base_file_name.split('_xyz_intensity_rgb')[0] + '_sorted_step_' + str(larger_step[0]) + '_stride_' + str(larger_stride[0]) + '.hdf5'
+        print(new_name)
+        with  h5py.File(base_file_name,'r') as base_h5f, h5py.File(new_name,'w') as new_h5f:
+            base_sh5f = Sorted_H5f(base_h5f)
+            new_sh5f = Sorted_H5f(new_h5f)
+            new_sh5f.copy_root_summaryinfo_from_another(base_sh5f)
+            new_sh5f.set_block_step(larger_step,larger_stride)
+
+            xyz_scope = base_h5f.attrs['xyz_scope']
+            step_in = base_h5f.attrs['block_step']
+            if 'block_stride' in base_h5f.attrs:
+                stride_in = base_h5f.attrs['block_stride']
+            else:
+                stride_in = step_in
+            new_step = larger_step
+            new_stride = larger_stride
+            for i,dset_name in enumerate( base_h5f ):
+                print('dset_name = ',dset_name)
+                block_i_in = int(dset_name)
+                in_dset_i = base_h5f[dset_name]
+                block_k_new_ls,i_xyz_out_ls = self.get_sub_block_ks(new_step,new_stride,xyz_scope,block_i_in,step_in,stride_in)
+                for block_k_new in block_k_new_ls:
+                    new_sh5f.append_to_dset(block_k_new,in_dset_i)
+                print(block_k_new_ls)
+                if i >= 0:
+                    exit()
+
+
 
 
     def get_block_dims_N(self,xyz_scope,block_stride):
-        block_dims_N = np.ceil(xyz_scope / block_stride).astype(np.int64)
-        return block_dims_N
+        return  get_block_dims_N(xyz_scope,block_stride)
 
     def get_sub_block_ks(self,block_step_out,block_stride_out,xyz_scope,block_k_in,block_step_in,block_stride_in):
         '''
@@ -306,9 +418,7 @@ class OUTDOOR_DATA_PREP():
 
     def get_blocked_dset(self,block_k,block_step,block_dims_N):
         dset_name = str(block_k)
-        #if self.block_dsets[block_k]!=None:
         if dset_name in self.h5f_blocked:
-            #return self.block_dsets[block_k]
             return self.h5f_blocked[dset_name]
         rows_default = self.h5_chunk_row_step_1M
         n = 9
@@ -372,7 +482,8 @@ class OUTDOOR_DATA_PREP():
 
 
     def sort_to_blocks(self,file_name):
-        '''split th ewhole scene to space sorted small blocks
+        '''
+        split th ewhole scene to space sorted small blocks
         The whole scene is a group. Each block is one dataset in the group.
         The block attrs represents the field.
         '''
@@ -399,7 +510,7 @@ class OUTDOOR_DATA_PREP():
             self.h5f_blocked.attrs['xyz_scope'] = self.raw_h5f.xyz_scope
             self.h5f_blocked.attrs['block_step'] = block_step
             self.h5f_blocked.attrs['block_dims_N'] = block_dims_N
-            self.h5f_blocked.attrs['raw_point_N'] = self.raw_h5f.total_row_num
+            self.h5f_blocked.attrs['total_row_num'] = self.raw_h5f.total_row_num
 
             #self.h5f_blocked.attrs['max_blocks_N'] = blocks_N
 
@@ -619,7 +730,8 @@ class OUTDOOR_DATA_PREP():
 #-------------------------------------------------------------------------------
 def main():
     outdoor_prep = OUTDOOR_DATA_PREP()
-    outdoor_prep.test_sub_block_ks()
+    outdoor_prep.Do_merge_blocks()
+    #outdoor_prep.test_sub_block_ks()
     #outdoor_prep.Do_sort_to_blocks()
     #outdoor_prep.Add_block_dims_N_attrs()
     #outdoor_prep.DO_add_geometric_scope_file()
