@@ -32,13 +32,14 @@ class Raw_H5f():
         self.xyz_min = self.xyz_dset.attrs['min']
         self.xyz_scope = self.xyz_max - self.xyz_min
 
-    def get_block_nums(self,block_step):
-        block_nums = np.ceil(self.xyz_scope / block_step).astype(np.int32)
-        return block_nums
+    def get_block_dims_N(self,block_step):
+        block_dims_N = np.ceil(self.xyz_scope / block_step).astype(np.int64)
+        return block_dims_N
 
 class OUTDOOR_DATA_PREP():
     Local_training_partAh5_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
     ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
+    ETH_training_sortedAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/sorted_A_h5'
     ETH_training_partBh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_B_rawh5'
     h5_chunk_row_step_1M = 50*1000
     h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
@@ -52,6 +53,107 @@ class OUTDOOR_DATA_PREP():
 
 
 
+    def test_sub_block_ks(self):
+        sorted_rawh5f_name = os.path.join(self.ETH_training_sortedAh5_folder,'bildstein_station5_xyz_intensity_rgb_blocked.h5')
+        sorted_raw_f = h5py.File(sorted_rawh5f_name,'r')
+        block_step0 = sorted_raw_f.attrs['block_step']
+        block_stride0 = block_step0
+        xyz_scope0 = sorted_raw_f.attrs['xyz_scope']
+        block_step1 = np.array([1,1,1])*4
+        block_stride1 = np.array([1,1,1])*2
+        block_k1 = 52354
+        check_flag = True
+        print('block_k1 = ',block_k1)
+        block_k0s,i_xyz_0s = self.get_sub_block_ks(block_step0,block_stride0,xyz_scope0,block_k1,block_step1,block_stride1)
+        print('block_k0s = ',len(block_k0s),'   ',block_k0s,'\n')
+        for block_k0 in block_k0s:
+            block_k1s,i_xyz_1s = self.get_sub_block_ks(block_step1,block_stride1,xyz_scope0,block_k0,block_step0,block_stride0)
+            print('k0 = ',block_k0,'  block_k1 = ',block_k1s,'\nlen = ',len(block_k1s),'\n')
+            if block_k1 not in block_k1s:
+                check_flag = False
+
+            for block_k1_ in block_k1s:
+                block_k0s_,i_xyz_0s_ = self.get_sub_block_ks(block_step0,block_stride0,xyz_scope0,block_k1_,block_step1,block_stride1)
+                if block_k0 not in block_k0s_:
+                    check_flag = False
+
+
+        if check_flag:
+            print('all check passed')
+        else:
+            print('check failed')
+
+    def merge_blocks(self):
+        a=1
+        pass
+
+
+    def get_block_dims_N(self,xyz_scope,block_stride):
+        block_dims_N = np.ceil(xyz_scope / block_stride).astype(np.int64)
+        return block_dims_N
+
+    def get_sub_block_ks(self,block_step_out,block_stride_out,xyz_scope,block_k_in,block_step_in,block_stride_in):
+        '''
+        A space is block_k0 with block_step0,
+        return the corresponding block_ks with block_step1.
+        block_ks is a list
+        '''
+        #assert((block_step1>block_step0).all())
+        #assert((block_step1%block_step0==0).all())
+
+        block_dims_N_out = self.get_block_dims_N(xyz_scope,block_stride_out)
+        block_dims_N_in = self.get_block_dims_N(xyz_scope,block_stride_in)
+
+        i_xyz_in = self.get_i_xyz(block_k_in,block_dims_N_in)
+        stride_rate = (block_stride_in / block_stride_out).astype(np.float32)
+        i_xyz_out_start = i_xyz_in * stride_rate
+        #i_xyz_out_end = i_xyz_out_start + step_rate.astype(int)
+        i_xyz_out_list = []
+        block_k_out_list = []
+        if (block_step_in > block_step_out).any():
+            '''
+            find all the small(out) blocks within the large input block
+            The out dataset is a base dataset in which: block_step_out == block_stride_out
+            '''
+            assert((block_step_in > block_step_out).all())
+            assert((block_step_out == block_stride_out).all())
+
+            scope = np.ceil(block_step_in / block_step_out).astype(np.int64)
+            for i_x in range(0,scope[0]):
+                for i_y in range(0,scope[1]):
+                    for i_z in range(0,scope[2]):
+                        i_xyz_out = ( i_xyz_out_start + np.array([i_x,i_y,i_z]) ).astype(np.uint64)
+                        block_k_out = self.get_block_k(i_xyz_out,block_dims_N_out)
+                        i_xyz_out_list.append(i_xyz_out)
+                        block_k_out_list.append(block_k_out)
+        else:
+            '''
+            find all the large(out) blocks contains the small input block
+            '''
+            assert( (block_step_in <= block_step_out).all() )
+            assert( (block_step_out % block_step_in == 0).all() )
+            assert( (block_stride_out >= block_step_in).all() )
+            assert( (block_stride_out % block_step_in == 0).all() )
+
+
+            scope = ( block_step_out / block_stride_out ).astype(np.float64)
+            if ( scope%1*block_stride_out >= block_step_in).all() :
+                scope = np.ceil(scope).astype(np.int64)
+            else:
+                scope = np.trunc(scope).astype(np.int64)
+            for i_x in range( -scope[0]+1,1 ):
+                for i_y in range(  -scope[1]+1,1  ):
+                    for i_z in range(  -scope[2]+1,1 ):
+                        i_xyz_out = ( i_xyz_out_start + np.array([i_x,i_y,i_z]) ).astype(np.int64)
+                        if ( (i_xyz_out < 0).any() or (i_xyz_out > block_dims_N_out).any() ):
+                            continue
+
+                        block_k_out = self.get_block_k(i_xyz_out,block_dims_N_out)
+                        i_xyz_out_list.append(i_xyz_out)
+                        block_k_out_list.append(block_k_out)
+
+
+        return block_k_out_list,i_xyz_out_list
 
     def add_geometric_scope_file(self,h5_file_name,line_num_limit=None):
         ''' calculate the geometric scope of raw h5 data, and add the result to attrs of dset'''
@@ -202,7 +304,7 @@ class OUTDOOR_DATA_PREP():
         return data_files_list, h5_files_list
 
 
-    def get_blocked_dset(self,block_k,block_step,block_nums):
+    def get_blocked_dset(self,block_k,block_step,block_dims_N):
         dset_name = str(block_k)
         #if self.block_dsets[block_k]!=None:
         if dset_name in self.h5f_blocked:
@@ -218,62 +320,45 @@ class OUTDOOR_DATA_PREP():
                 maxshape=(None,n),dtype=np.float32,compression="gzip"  )
         dset.attrs['valid_num']=0
         block_scope_k = np.zeros((2,3))
-        i_xyz = self.get_i_xyz(block_k,block_nums)
-        block_k = int( i_xyz[0]*block_nums[1]*block_nums[2] + i_xyz[1]*block_nums[2] + i_xyz[2] )
+        i_xyz = self.get_i_xyz(block_k,block_dims_N)
+        block_k = int( i_xyz[0]*block_dims_N[1]*block_dims_N[2] + i_xyz[1]*block_dims_N[2] + i_xyz[2] )
         block_scope_k[0,:] = i_xyz * block_step + self.raw_h5f.xyz_min
         block_scope_k[1,:] = (i_xyz+1) * block_step + self.raw_h5f.xyz_min
         dset.attrs['i_xyz'] = i_xyz
         dset.attrs['xyz_scope'] = block_scope_k
         return dset
 
-    def get_i_xyz(self,block_k,block_nums):
+    def get_i_xyz(self,block_k,block_dims_N):
         i_xyz = np.zeros(3,np.int64)
-        i_xyz[2] = block_k % block_nums[2]
-        k = int( block_k / block_nums[2] )
-        i_xyz[1] = k % block_nums[1]
-        k = int( k / block_nums[1] )
-        i_xyz[0] = k % block_nums[0]
+        i_xyz[2] = block_k % block_dims_N[2]
+        k = int( block_k / block_dims_N[2] )
+        i_xyz[1] = k % block_dims_N[1]
+        k = int( k / block_dims_N[1] )
+        i_xyz[0] = k % block_dims_N[0]
         return i_xyz
 
-    def get_block_k(self,i_xyz,block_nums):
+    def get_block_k(self,i_xyz,block_dims_N):
         i_xyz = i_xyz.astype(np.uint64)
-        block_k = int( i_xyz[0]*block_nums[1]*block_nums[2] + i_xyz[1]*block_nums[2] + i_xyz[2] )
+        block_k = int( i_xyz[0]*block_dims_N[1]*block_dims_N[2] + i_xyz[1]*block_dims_N[2] + i_xyz[2] )
         return block_k
 
-    def get_block_index(self,xyz_k,block_step,block_nums):
+    def get_block_index(self,xyz_k,block_step,block_dims_N):
         i_xyz = ( (xyz_k - self.raw_h5f.xyz_min)/block_step ).astype(np.int64)
-        block_k = self.get_block_k(i_xyz,block_nums)
+        block_k = self.get_block_k(i_xyz,block_dims_N)
        # i_xyz_test = self.get_i_xyz(block_k)
        # if (i_xyz_test != i_xyz).any():
        #     print('get i_xyz ERROR!')
         return block_k
 
-    def get_sub_block_ks(self,block_step0,block_k0,block_step1,raw_h5f):
-        '''
-        A space is block_k0 with block_step0,
-        return the corresponding block_ks with block_step1.
-        block_ks is a list
-        '''
-        block_nums = raw_h5f.get_block_nums(block_step0)
-        i_xyz_0 = self.get_i_xyz(block_k0,block_nums0)
-        rate = block_step1 / block_step0
-        i_xyz_start = i_xyz_0 * rate
-        i_xyz_end = (i_xyz_0+1) * rate
-        i_xyz_1 = []
-        for x in range(i_xyz_start[0],i_xy_end[0]):
-            for y in range(i_xyz_start[1],i_xyz_end[1]):
-                for z in range(i_xyz_start[2],i_xyz_end[1]):
-                    i_xyz_1.append(np.array([x,y,z]))
-        print(i_xyz_1)
 
-    def get_block_index_multi(self,raw_buf,block_step,block_nums):
+    def get_block_index_multi(self,raw_buf,block_step,block_dims_N):
         block_ks = mp.Array('i',raw_buf.shape[0])
         num_workers = 2
         step = int(raw_buf.shape[0]/num_workers)
         pool = []
         for i in range(0,raw_buf.shape[0],step):
             end = min( (i+1)*step, raw_buf.shape[0])
-            p = mp.Process(target=self.get_block_index_subbuf,args=(raw_buf[i:end,0:3],block_ks,i,block_step,block_nums) )
+            p = mp.Process(target=self.get_block_index_subbuf,args=(raw_buf[i:end,0:3],block_ks,i,block_step,block_dims_N) )
             p.start()
             pool.append(p)
         for p in pool:
@@ -281,9 +366,9 @@ class OUTDOOR_DATA_PREP():
         return block_ks
 
 
-    def get_block_index_subbuf(self,sub_buf_xyz,block_ks,i_start,block_step,block_nums):
+    def get_block_index_subbuf(self,sub_buf_xyz,block_ks,i_start,block_step,block_dims_N):
         for i in range(sub_buf_xyz.shape[0]):
-            block_ks[i+i_start] = self.get_block_index(sub_buf_xyz[i,0:3],block_step,block_nums)
+            block_ks[i+i_start] = self.get_block_index(sub_buf_xyz[i,0:3],block_step,block_dims_N)
 
 
     def sort_to_blocks(self,file_name):
@@ -307,12 +392,15 @@ class OUTDOOR_DATA_PREP():
 
             self.raw_h5f = Raw_H5f(h5_f)
 
-            block_nums = self.raw_h5f.get_block_nums(block_step)
-            blocks_N = block_nums[0] * block_nums[1] * block_nums[2]
+            block_dims_N = self.raw_h5f.get_block_dims_N(block_step)
+            blocks_N = block_dims_N[0] * block_dims_N[1] * block_dims_N[2]
             self.h5f_blocked.attrs['xyz_max'] = self.raw_h5f.xyz_max
             self.h5f_blocked.attrs['xyz_min'] = self.raw_h5f.xyz_min
             self.h5f_blocked.attrs['xyz_scope'] = self.raw_h5f.xyz_scope
             self.h5f_blocked.attrs['block_step'] = block_step
+            self.h5f_blocked.attrs['block_dims_N'] = block_dims_N
+            self.h5f_blocked.attrs['raw_point_N'] = self.raw_h5f.total_row_num
+
             #self.h5f_blocked.attrs['max_blocks_N'] = blocks_N
 
             #self.row_num_limit = int(self.raw_h5f.total_row_num/1000)
@@ -340,10 +428,10 @@ class OUTDOOR_DATA_PREP():
                 #t2_0_k = time.time()
 
                 sorted_buf_dic={}
-                self.sort_buf(raw_buf,k,sorted_buf_dic,block_step,block_nums)
+                self.sort_buf(raw_buf,k,sorted_buf_dic,block_step,block_dims_N)
 
                 #t2_1_k = time.time()
-                self.h5_write_buf(sorted_buf_dic,block_step,block_nums)
+                self.h5_write_buf(sorted_buf_dic,block_step,block_dims_N)
 
                 t2_2_k = time.time()
                 if int(k/row_step) % 1 == 0:
@@ -368,15 +456,15 @@ class OUTDOOR_DATA_PREP():
             self.check_sorted_result(file_name,blocked_file_name)
 
 
-    def sort_buf(self,raw_buf,buf_start_k,sorted_buf_dic,block_step,block_nums):
+    def sort_buf(self,raw_buf,buf_start_k,sorted_buf_dic,block_step,block_dims_N):
         #t0 = time.time()
         IsMulti = False
         if IsMulti:
-            block_ks = self.get_block_index_multi(raw_buf,block_step,block_nums)
+            block_ks = self.get_block_index_multi(raw_buf,block_step,block_dims_N)
         else:
             block_ks = np.zeros(raw_buf.shape[0],np.int64)
             for j in range(raw_buf.shape[0]):
-                block_ks[j] = self.get_block_index(raw_buf[j,0:3],block_step,block_nums)
+                block_ks[j] = self.get_block_index(raw_buf[j,0:3],block_step,block_dims_N)
 
         #t1 = time.time()
         for i in range(raw_buf.shape[0]):
@@ -390,11 +478,11 @@ class OUTDOOR_DATA_PREP():
         #print('t1 = %d ms, t2 = %d ms'%( (t1-t0)*1000,(t2-t1)*1000 ))
 
 
-    def h5_write_buf(self,sorted_buf_dic,block_step,block_nums):
+    def h5_write_buf(self,sorted_buf_dic,block_step,block_dims_N):
         for key in sorted_buf_dic:
             sorted_buf_dic[key] = np.concatenate(sorted_buf_dic[key],axis=0)
         for block_k in sorted_buf_dic:
-            dset_k =  self.get_blocked_dset(block_k,block_step,block_nums)
+            dset_k =  self.get_blocked_dset(block_k,block_step,block_dims_N)
             valid_n = dset_k.attrs['valid_num']
             new_valid_n = valid_n + sorted_buf_dic[block_k].shape[0]
             while dset_k.shape[0] < new_valid_n:
@@ -415,6 +503,23 @@ class OUTDOOR_DATA_PREP():
     Implement Functions
     '''
     #-------------------------------------------------------------------------------
+    def Add_block_dims_N_attrs(self):
+        ''' Initially, some sorted datasets do not contain block_dims_N attrs.
+            Use this function to add them.
+        '''
+        ETH_raw_h5_glob =glob.glob(  os.path.join( self.ETH_training_partAh5_folder,'*.hdf5') )
+        sorted_folder = self.ETH_training_sortedAh5_folder
+        for raw_fn in ETH_raw_h5_glob:
+            base_name = os.path.splitext(os.path.basename(raw_fn))[0]
+            sorted_name = os.path.join(sorted_folder,base_name+'_blocked.h5')
+            if os.path.exists(sorted_name):
+                print('\nsorted_name = ',sorted_name)
+                with h5py.File(raw_fn,'r') as raw_f, h5py.File(sorted_name,'a') as sorted_f:
+                    raw_h5f = Raw_H5f(raw_f)
+                    block_step = sorted_f.attrs['block_step']
+                    block_dims_N = raw_h5f.get_block_dims_N(block_step)
+                    sorted_f.attrs['block_dims_N'] = block_dims_N
+                    print(sorted_f.attrs['block_dims_N'])
 
     def DO_add_geometric_scope_file(self):
         files_glob = os.path.join(self.ETH_training_partBh5_folder,'*.hdf5')
@@ -447,7 +552,9 @@ class OUTDOOR_DATA_PREP():
 
     def Do_sort_to_blocks(self):
         ETH_raw_h5_glob =glob.glob(  os.path.join( self.ETH_training_partBh5_folder,'*.hdf5') )
-        IsMulti = True
+        ETH_raw_h5_glob =glob.glob(  os.path.join( '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/bildstein_station5_xyz_intensity_rgb.hdf5') )
+
+        IsMulti = False
         if not IsMulti:
             for fn in ETH_raw_h5_glob:
                 print('sort file: ',fn)
@@ -512,8 +619,9 @@ class OUTDOOR_DATA_PREP():
 #-------------------------------------------------------------------------------
 def main():
     outdoor_prep = OUTDOOR_DATA_PREP()
-    outdoor_prep.Do_sort_to_blocks()
-
+    outdoor_prep.test_sub_block_ks()
+    #outdoor_prep.Do_sort_to_blocks()
+    #outdoor_prep.Add_block_dims_N_attrs()
     #outdoor_prep.DO_add_geometric_scope_file()
     #outdoor_prep.DO_gen_rawETH_to_h5()
 
