@@ -126,12 +126,13 @@ class Sorted_H5f():
         for n,dn in enumerate( self.sorted_h5f ):
             total_row_N += self.sorted_h5f[dn].shape[0]
             if n % 200 == 0:
-                print('dset: ',dn, '   file_name= ',self.file_name)
+                print('dset: ',dn, '   file_name= ',self.file_name,'  in add_total_row_block_N')
             #if n > 10:
                 #break
 
         self.set_root_attr('total_row_N',total_row_N)
         self.set_root_attr('total_block_N',n+1)
+        print('add_total_row_block_N:  file: %s \n   total_row_N = %d,  total_block_N = %d'%(self.file_name,self.total_row_N,self.total_block_N))
         return total_row_N, n+1
 
     def copy_root_summaryinfo_from_another(self,h5f0):
@@ -152,11 +153,12 @@ class Sorted_H5f():
         self.sorted_h5f.attrs['block_dims_N'] = block_dims_N
         self.get_summary_info()
 
+
     def get_blocked_dset(self,block_k,new_set_default_rows=None):
-        if type(block_k) is str:
-            dset_name = block_k
-        else:
-            dset_name = str(block_k)
+        if not type(block_k) is int:
+            block_k = int(block_k)
+
+        dset_name = str(block_k)
         if dset_name in self.sorted_h5f:
             return self.sorted_h5f[dset_name]
         if new_set_default_rows==None:
@@ -204,6 +206,10 @@ class Sorted_H5f():
             #print('scope checked OK')
             return True
         else:
+            if not (scope[0,:] <= xyz_min).all():
+                print('min check failed: \nscope_min=\n',scope[0,:],'\nreal_min=\n',xyz_min)
+            if not (scope[1,:] >= xyz_max).all():
+                print('max check failed: \nscope_max=\n',scope[1,:],'\nreal_max=\n',xyz_max)
             return False
     def Check_xyz_scope(self):
         step = int(self.total_block_N/15)
@@ -249,30 +255,41 @@ class Sorted_H5f():
                 out_obj_file.write(str_j)
 
     def generate_blocks_to_object(self,obj_folder):
-        aim_scope = np.array([[-30,-30,-30],[20,20,50]])
+        aim_scope = np.array([[-30,-30,-20],[20,20,50]])
+        aim_scope = None
         n = 0
         last_rate = -20
-        for dset_name in self.sorted_h5f:
-            row_N = self.sorted_h5f[dset_name].shape[0]
-            scope_i = self.sorted_h5f[dset_name].attrs['xyz_scope']
-            IsInScope = (scope_i[0,:] > aim_scope[0,:]).all() and (scope_i[1,:] < aim_scope[1,:]).all()
-            if not IsInScope:
-                continue
-            out_fn = os.path.join(obj_folder,dset_name+'_'+str(row_N)+'.obj')
-            with open(out_fn,'w') as out_f:
-                self.generate_one_block_to_object(dset_name,out_f)
-            n += row_N
-            rate = 100.0 * n / self.total_row_N
-            if int(rate) % 2 == 0 and rate - last_rate > 3:
-                last_rate = rate
-                print('%0.2f%% generating file: %s'%(rate,out_fn) )
+        out_info_fn = os.path.join(obj_folder,'info.txt')
+        with open(out_info_fn,'w') as info_f:
+            for dset_name in self.sorted_h5f:
+                row_N = self.sorted_h5f[dset_name].shape[0]
 
-            print('dset: %s  scope= \n'%(dset_name),scope_i)
-            #if rate > 30:
-                #break
+                scope_i = self.sorted_h5f[dset_name].attrs['xyz_scope']
+                if aim_scope == None:
+                    IsInScope = True
+                else:
+                    IsInScope = (scope_i[0,:] > aim_scope[0,:]).all() and (scope_i[1,:] < aim_scope[1,:]).all()
+                if not IsInScope:
+                    continue
+                out_fn = os.path.join(obj_folder,dset_name+'_'+str(row_N)+'.obj')
+                with open(out_fn,'w') as out_f:
+                    self.generate_one_block_to_object(dset_name,out_f)
+                n += row_N
+                rate = 100.0 * n / self.total_row_N
+                if int(rate) % 2 == 0 and rate - last_rate > 3:
+                    last_rate = rate
+                    print('%0.2f%% generating file: %s'%(rate,out_fn) )
+
+                info_str = 'dset: %s N= %d   scope= \n'%(dset_name,self.sorted_h5f[dset_name].shape[0]) + np.array_str(scope_i) + '\n\n'
+                info_f.write(info_str)
+                print(info_str)
+                #if rate > 30:
+                    #break
     def extract_sub_area(self,sub_xyz_scope,sub_file_name):
-        with h5py.File(sub_file_name,'r') as sub_h5f:
-            sub_f = Sorted_H5f(sub_h5f)
+        with h5py.File(sub_file_name,'w') as sub_h5f:
+            sub_f = Sorted_H5f(sub_h5f,sub_file_name)
+
+            sub_f.copy_root_summaryinfo_from_another(self)
             sub_f.set_block_step(self.block_step,self.block_stride)
             for dset_name_i in self.sorted_h5f:
                 xyz_scope_i = self.sorted_h5f[dset_name_i].attrs['xyz_scope']
@@ -286,7 +303,7 @@ class Sorted_H5f():
 
 
 def Do_Check_xyz():
-    folder = GLOBAL_PARA.ETH_A_step_5_stride_5
+    folder = GLOBAL_PARA.ETH_A_step_20_stride_10
     fnl = glob.glob(os.path.join(folder,'*.hdf5'))
     for fn in fnl:
         print('checking xyz scope of file: ',fn)
@@ -297,14 +314,18 @@ def Do_Check_xyz():
 
 def Do_extract_sub_area():
     folder = GLOBAL_PARA.ETH_A_step_10_stride_10
-    fnl = glob.glob(os.path.join(folder,'b*.hdf5'))
-    sub_xyz_scope = np.array([ [50,50,-30],[80,80,50] ])
-    new_flag = '50_80'
+    fnl = glob.glob(os.path.join(folder,'b*_step_10_stride_10.hdf5'))
+    sub_xyz_scope = np.array([[-30,-30,-20],[20,20,50]])
+    sub_xyz_scope = np.array([[-70,-50,-20],[-5,-5,50]])
+    print('sub_scope:\n',sub_xyz_scope)
+    new_flag = '_sub_m60_m5'
     for fn in fnl:
         fn_parts =  os.path.splitext(fn)
         new_name = fn_parts[0]+new_flag+fn_parts[1]
-        sorted_h5f = Sorted_H5f(fn)
-        sorted_h5f.extract_sub_area(sub_xyz_scope,new_name)
+        print('sub file name: ',new_name)
+        with h5py.File(fn,'r') as s_h5f:
+            sorted_h5f = Sorted_H5f(s_h5f,fn)
+            sorted_h5f.extract_sub_area(sub_xyz_scope,new_name)
 
 
 def Add_sorted_total_row_block_N_onefile(fn):
@@ -993,7 +1014,7 @@ def Do_gen_raw_obj():
 
 def Do_gen_sorted_block_obj():
     folder_path = GLOBAL_PARA.ETH_A_step_10_stride_10
-    file_list = glob.glob( os.path.join(folder_path,'bi*.hdf5') )
+    file_list = glob.glob( os.path.join(folder_path,'bi*m5.hdf5') )
     for fn in file_list:
         base_fn = os.path.basename(fn)
         base_fn = os.path.splitext(base_fn)[0]
@@ -1016,9 +1037,10 @@ def main():
 
 if __name__ == '__main__':
     #main()
-    #Do_gen_sorted_block_obj()
+    Do_extract_sub_area()
+    Do_gen_sorted_block_obj()
     #Do_gen_raw_obj()
     #Add_sorted_total_row_block_N()
-    Do_Check_xyz()
+    #Do_Check_xyz()
     T = time.time() - START_T
     print('exit main, T = ',T)

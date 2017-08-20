@@ -21,3 +21,4 @@ x_sem_seg/log6
 *.sh.e*
 *.sh.o*
 x_sem_seg/PBS/
+*PBS
