@@ -128,6 +128,7 @@ class Raw_H5f():
         print('File: %s\n\tmax_str=%s\n\tmin_str=%s'%(self.file_name,max_str,min_str) )
         print('T=',time.time()-begin)
 
+
 class Sorted_H5f():
     the_raw_index = 8
     h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
@@ -165,6 +166,7 @@ class Sorted_H5f():
                 for attr in dset.attrs:
                     print(attr,' = ',dset.attrs[attr])
                 print(dset[0:min(4,dset.shape[0]),:])
+                print(dset[-1,:])
 
 
     def set_root_attr(self,attr,value):
@@ -320,19 +322,32 @@ class Sorted_H5f():
             #print('checing block %s'%(block_k))
             dset_k = self.sorted_h5f[block_k]
             step = max(int(dset_k.shape[0]/30),1)
+            flag_k = True
             for i in range(0,dset_k.shape[0],step):
                 sorted_d_i = dset_k[i,0:8]
                 raw_k = dset_k[i,8]
+                if raw_k > 16777215: # for float32, it is not accurate again
+                    continue
                 raw_d_i = np.concatenate(  [raw_xyz_set[raw_k,:],raw_color_set[raw_k,:],raw_label_set[raw_k,:],raw_intensity_set[raw_k,:]] )
                 error = raw_d_i - sorted_d_i
-                err = np.absolute( error ).sum()
+                err = np.linalg.norm( error )
                 if err != 0:
+                    flag_k = False
                     check_flag = False
-                    print('sorted error: block_k=%s,i=%d'%(block_k,i))
+                    print('\nsorted error: block_k=%s,i=%d'%(block_k,i))
+                    print('raw_data = \n',raw_d_i,'\nsorted_data = \n',sorted_d_i)
+                    break
+                else:
+                    pass
+                    #print('equal check passed: block_k=%s,i=%d'%(block_k,i))
+#            if flag_k:
+#                    print('equal check passed: block_k=%s '%(block_k))
+#            else:
+#                    print('equal check failed: block_k=%s '%(block_k))
         return check_flag
 
     def append_to_dset(self,aim_block_k,source_dset,vacant_size=0):
-        aim_dset = self.get_blocked_dset(aim_block_k,0)
+        aim_dset = self.get_blocked_dset(aim_block_k,vacant_size)
         row_step = self.h5_chunk_row_step_1M * 10
         org_row_N = aim_dset.attrs['valid_num']
         new_row_N = source_dset.shape[0]
@@ -342,6 +357,17 @@ class Sorted_H5f():
             aim_dset[org_row_N+k:org_row_N+end,:] = source_dset[k:end,:]
             aim_dset.attrs['valid_num'] = end + org_row_N
 
+
+    def append_to_group(self,aim_block_k,source_group,vacant_size=0):
+        aim_group = self.get_blocked_dset(aim_block_k,vacant_size)
+        row_step = self.h5_chunk_row_step_1M * 10
+        org_row_N = aim_dset.attrs['valid_num']
+        new_row_N = source_dset.shape[0]
+        aim_dset.resize((org_row_N+new_row_N+vacant_size,aim_dset.shape[1]))
+        for k in range(0,new_row_N,row_step):
+            end = min(k+row_step,new_row_N)
+            aim_dset[org_row_N+k:org_row_N+end,:] = source_dset[k:end,:]
+            aim_dset.attrs['valid_num'] = end + org_row_N
 
     def generate_one_block_to_object(self,block_k,out_obj_file):
         row_step = self.h5_chunk_row_step_1M * 10
@@ -404,16 +430,27 @@ class Sorted_H5f():
 
 
 
-
-
 def Do_Check_xyz():
-    folder = GLOBAL_PARA.ETH_A_step_20_stride_10
-    fnl = glob.glob(os.path.join(folder,'*.hdf5'))
-    for fn in fnl:
-        print('checking xyz scope of file: ',fn)
+        folder = GLOBAL_PARA.ETH_A_rawh5
+    #fnl = glob.glob(os.path.join(folder,'*.hdf5'))
+    #for fn in fnl:
+        fn = os.path.join(folder,'bildstein_station5_xyz_intensity_rgb.hdf5')
+        fn_s = os.path.join(folder,'A_bildstein_station5_stride_1_step_1.h5')
+        print('checking equal and  xyz scope of file: ',fn)
         with h5py.File(fn,'r') as h5f:
-            sorted_h5f = Sorted_H5f(h5f,fn)
-            sorted_h5f.check_xyz_scope()
+            with h5py.File(fn_s,'r') as sh5f:
+                sorted_h5f = Sorted_H5f(sh5f,fn)
+                #sorted_h5f.show_summary_info()
+                flag1 = sorted_h5f.check_equal_to_raw(h5f)
+                if flag1:
+                    print('equal check passed')
+                else:
+                    print('equal check failed')
+                flag2 = sorted_h5f.check_xyz_scope()
+                if flag2:
+                    print('xyz scope check passed')
+                else:
+                    print('xyz scope check failed')
 
 
 def Do_extract_sub_area():
@@ -453,16 +490,16 @@ def Add_sorted_total_row_block_N():
 
 
 class OUTDOOR_DATA_PREP():
-    Local_training_partAh5_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
-    ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
-    ETH_training_sortedAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/sorted_A_h5_0.5block'
-    ETH_training_sortedAh5_5b_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/sorted_A_h5_5block'
-    ETH_training_partBh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_B_rawh5'
-    h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
-    h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
-    h5_chunk_row_step_100M = h5_chunk_row_step_1M * 100
-    h5_chunk_row_step_1G = h5_chunk_row_step_1M * 1000
-    h5_chunk_row_step =  h5_chunk_row_step_10M
+ #   Local_training_partAh5_folder = '/home/x/Research/Dataset/ETH_Semantic3D_Dataset/training/part_A_h5'
+ #   ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
+ #   ETH_training_sortedAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/sorted_A_h5_0.5block'
+ #   ETH_training_sortedAh5_5b_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/sorted_A_h5_5block'
+ #   ETH_training_partBh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_B_rawh5'
+ #   h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
+ #   h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
+ #   h5_chunk_row_step_100M = h5_chunk_row_step_1M * 100
+ #   h5_chunk_row_step_1G = h5_chunk_row_step_1M * 1000
+ #   h5_chunk_row_step =  h5_chunk_row_step_10M
 
     def __init__(self):
         print('Init Class OUTDOOR_DATA_PREP')
@@ -642,38 +679,38 @@ class OUTDOOR_DATA_PREP():
 
         return block_k_out_list,i_xyz_out_list
 
-#    def add_geometric_scope_file(self,h5_file_name,line_num_limit=None):
-#        ''' calculate the geometric scope of raw h5 data, and add the result to attrs of dset'''
-#        begin = time.time()
-#        h5f = h5py.File(h5_file_name,'a')
-#        max_xyz = -np.ones((3))*1e10
-#        min_xyz = np.ones((3))*1e10
-#
-#        xyz_dset = h5f['xyz']
-#        row_step = self.h5_chunk_row_step_1M
-#        print('There are %d lines in xyz dataset of file: %s'%(xyz_dset.shape[0],h5_file_name))
-#        #print('read row step = %d'%(row_step))
-#
-#        for k in range(0,xyz_dset.shape[0],row_step):
-#            end = min(k+row_step,xyz_dset.shape[0])
-#            xyz_buf = xyz_dset[k:end,:]
-#            xyz_buf_max = xyz_buf.max(axis=0)
-#            xyz_buf_min = xyz_buf.min(axis=0)
-#            max_xyz = np.maximum(max_xyz,xyz_buf_max)
-#            min_xyz = np.minimum(min_xyz,xyz_buf_min)
-#
-#            #if k/row_step % 100  == 0:
-#                #print('\nprocessing line %d , %0.3f in %s'%(k, float(k)/xyz_dset.shape[0] ,h5_file_name))
-#            if line_num_limit!=None and k > line_num_limit:
-#                print('break at k = ',line_num_limit)
-#                break
-#        xyz_dset.attrs['max'] = max_xyz
-#        xyz_dset.attrs['min'] = min_xyz
-#        max_str = '  '.join([ str(e) for e in max_xyz ])
-#        min_str = '  '.join([ str(e) for e in min_xyz ])
-#        print('File: %s\n\tmax_str=%s\n\tmin_str=%s'%(h5_file_name,max_str,min_str) )
-#        print('T=',time.time()-begin)
-#
+    #    def add_geometric_scope_file(self,h5_file_name,line_num_limit=None):
+    #        ''' calculate the geometric scope of raw h5 data, and add the result to attrs of dset'''
+    #        begin = time.time()
+    #        h5f = h5py.File(h5_file_name,'a')
+    #        max_xyz = -np.ones((3))*1e10
+    #        min_xyz = np.ones((3))*1e10
+    #
+    #        xyz_dset = h5f['xyz']
+    #        row_step = self.h5_chunk_row_step_1M
+    #        print('There are %d lines in xyz dataset of file: %s'%(xyz_dset.shape[0],h5_file_name))
+    #        #print('read row step = %d'%(row_step))
+    #
+    #        for k in range(0,xyz_dset.shape[0],row_step):
+    #            end = min(k+row_step,xyz_dset.shape[0])
+    #            xyz_buf = xyz_dset[k:end,:]
+    #            xyz_buf_max = xyz_buf.max(axis=0)
+    #            xyz_buf_min = xyz_buf.min(axis=0)
+    #            max_xyz = np.maximum(max_xyz,xyz_buf_max)
+    #            min_xyz = np.minimum(min_xyz,xyz_buf_min)
+    #
+    #            #if k/row_step % 100  == 0:
+    #                #print('\nprocessing line %d , %0.3f in %s'%(k, float(k)/xyz_dset.shape[0] ,h5_file_name))
+    #            if line_num_limit!=None and k > line_num_limit:
+    #                print('break at k = ',line_num_limit)
+    #                break
+    #        xyz_dset.attrs['max'] = max_xyz
+    #        xyz_dset.attrs['min'] = min_xyz
+    #        max_str = '  '.join([ str(e) for e in max_xyz ])
+    #        min_str = '  '.join([ str(e) for e in min_xyz ])
+    #        print('File: %s\n\tmax_str=%s\n\tmin_str=%s'%(h5_file_name,max_str,min_str) )
+    #        print('T=',time.time()-begin)
+    #
 
     def gen_rawETH_to_h5(self,label_files_glob,line_num_limit=None):
         '''
@@ -861,6 +898,7 @@ class OUTDOOR_DATA_PREP():
             #block_ks[i+i_start] = self.get_block_index(sub_buf_xyz[i,0:3],block_step,block_dims_N)
 
 
+
     def sort_to_blocks(self,file_name,block_step_x=1):
         '''
         split th ewhole scene to space sorted small blocks
@@ -888,11 +926,11 @@ class OUTDOOR_DATA_PREP():
 
                 #self.row_num_limit = int(self.raw_h5f.total_row_N/1000)
 
-                row_step = self.h5_chunk_row_step_1M*8
+                row_step = GLOBAL_PARA.h5_chunk_row_step_1M*8
                 sorted_buf_dic = {}
-
-                for k in range(0,self.raw_h5f.total_row_N,row_step):
-                    end = min(k+row_step,self.raw_h5f.total_row_N)
+                raw_row_N = self.raw_h5f.xyz_dset.shape[0]
+                for k in range(0,raw_row_N,row_step):
+                    end = min(k+row_step,raw_row_N)
                     raw_buf = np.zeros((end-k,9))
                     #t0_k = time.time()
                     #print('start read %d:%d'%(k,end))
@@ -900,7 +938,10 @@ class OUTDOOR_DATA_PREP():
                     raw_buf[:,3:6] = self.raw_h5f.color_dset[k:end,:]
                     raw_buf[:,6:7] = self.raw_h5f.label_dset[k:end,:]
                     raw_buf[:,7:8] = self.raw_h5f.intensity_dset[k:end,:]
-                    raw_buf[:,8] = np.arange(raw_buf.shape[0]) + k
+                    if end < 16777215: # this is the largest int float32 can acurately present
+                        raw_buf[:,8] = np.arange(k,end)
+                    else:
+                        raw_buf[:,8] = -1
                     #t1_k = time.time()
                     #print('all read T=',time.time()-read_t0)
 
@@ -918,6 +959,7 @@ class OUTDOOR_DATA_PREP():
                          #print('line: [%d,%d] blocked   block_T=%f s, read_T=%f ms, cal_t = %f ms, write_t= %f ms'%\
                                #(k,end,time.time()-t0_k,(t1_k-t0_k)*1000,(t2_1_k-t2_0_k)*1000, (t2_2_k-t2_1_k)*1000 ))
                     if hasattr(self,'row_num_limit') and self.row_num_limit!=None and  end>=self.row_num_limit:
+                    #if k /row_step >3:
                         print('break read at k= ',end)
                         break
 
@@ -965,12 +1007,21 @@ class OUTDOOR_DATA_PREP():
         #t2 = time.time()
         #print('t1 = %d ms, t2 = %d ms'%( (t1-t0)*1000,(t2-t1)*1000 ))
 
+    def check_buf(self,buf):
+        for k in range(buf.shape[0]):
+            raw_k = buf[k,8]
+            raw_d_i = np.concatenate(  [self.raw_h5f.xyz_dset[raw_k,:],self.raw_h5f.color_dset[raw_k,:],self.raw_h5f.label_dset[raw_k,:],self.raw_h5f.intensity_dset[raw_k,:]] )
+            if (raw_d_i != buf[k,0:8]).any():
+                print('equal check err')
+
 
     def h5_write_buf(self,sorted_buf_dic):
         for key in sorted_buf_dic:
             sorted_buf_dic[key] = np.concatenate(sorted_buf_dic[key],axis=0)
         for block_k in sorted_buf_dic:
-            self.s_h5f.append_to_dset(block_k,sorted_buf_dic[block_k],vacant_size=self.h5_chunk_row_step_1M)
+            self.check_buf(sorted_buf_dic[block_k])
+            #self.s_h5f.append_to_dset(block_k,sorted_buf_dic[block_k],vacant_size=GLOBAL_PARA.h5_chunk_row_step_1M)
+
 #            dset_k =  self.s_h5f.get_blocked_dset(block_k)
 #            valid_n = dset_k.attrs['valid_num']
 #            new_valid_n = valid_n + sorted_buf_dic[block_k].shape[0]
@@ -1040,7 +1091,7 @@ class OUTDOOR_DATA_PREP():
         ETH_raw_h5_glob =glob.glob(  os.path.join( GLOBAL_PARA.ETH_A_rawh5,'b*.hdf5') )
         #ETH_raw_h5_glob =glob.glob(  os.path.join( '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/tmp_test/bildstein_station5_xyz_intensity_rgb.hdf5') )
 
-        block_step_x = 1
+        block_step_x = 10
         IsMulti = False
         if not IsMulti:
             for fn in ETH_raw_h5_glob:
