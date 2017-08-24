@@ -250,14 +250,14 @@ class Sorted_H5f():
         '''
         i_xyz = self.block_index_to_ixyz(block_k)
         i_xyz_new_start = i_xyz * self.block_stride / new_sorted_h5f.block_stride
-        i_xyz_new_start = np.ceil(i_xyz_new_start).astype(np.int)
+        i_xyz_new_start = (i_xyz_new_start).astype(np.int)
         #print( self.xyz_min_aligned )
         #print( new_sorted_h5f.xyz_min_aligned )
         i_xyz_new_list = []
         block_k_new_list = []
 
         # for check
-        IsCheck_Scope = True
+        IsCheck_Scope =  False
         if IsCheck_Scope:
             min_k,max_k,_ = self.get_block_scope_from_k(block_k)
 
@@ -286,12 +286,13 @@ class Sorted_H5f():
                             max_check = True
                         if not min_check & max_check:
                             print('new=small failed i_xyz=',[i_x,i_y,i_z])
-                           # if not min_check:
-                           #     print('\nmin check failed in get_sub_blcok_ks')
-                           #     print('new min = ',min_k_new,'\norg min = ',min_k)
-                           # if not max_check:
-                           #     print('\nmax check failed in get_sub_blcok_ks')
-                           #     print('new max = ',max_k_new,'\norg max = ',max_k)
+                            if not min_check:
+                                print('\nmin check failed in get_sub_blcok_ks')
+                                print('new min = ',min_k_new,'\norg min = ',min_k)
+                            if not max_check:
+                                print('\nmax check failed in get_sub_blcok_ks')
+                                print('new max = ',max_k_new,'\norg max = ',max_k)
+                            import pdb; pdb.set_trace()  # XXX BREAKPOINT
 
                         else:
                             i_xyz_new_list.append(i_xyz_new)
@@ -339,10 +340,10 @@ class Sorted_H5f():
                             if not max_check:
                                 print('\nmax check failed in get_sub_blcok_ks')
                                 print('new max = ',max_k_new,'\norg max = ',max_k)
+                            import pdb; pdb.set_trace()  # XXX BREAKPOINT
 
                         else:
-                            pass
-                            print('both min and max check passed, i_xyz= ',[i_x,i_y,i_z])
+                            #print('both min and max check passed, i_xyz= ',[i_x,i_y,i_z])
                             i_xyz_new_list.append(i_xyz_new)
                             block_k_new_list.append(block_k_new)
         return block_k_new_list,i_xyz_new_list
@@ -566,29 +567,29 @@ def Test_sub_block_ks():
         sh5f1.set_step_stride(block_step1,block_stride1)
 
         for i,block_k0_str in enumerate( sh5f0.sorted_h5f ):
-            if i > 4:
+            if i > 3:
                 break
             block_k0 = int(block_k0_str)
             check_flag = True
             #print('block_k0 = ',block_k0)
             block_k1s,i_xyz_1s = sh5f0.get_sub_block_ks(block_k0,sh5f1)
             print('block_k1s = ',len(block_k1s),'   ',block_k1s,'\n')
-       #     for block_k1 in block_k1s:
-       #         # all the space block_k1 should contain block_k0
-       #         block_k0s,i_xyz_0s = sh5f1.get_sub_block_ks(block_k1,sh5f0)
-       #         print('k1 = ',block_k1,'  block_k0 = ',block_k0s,'\nlen = ',len(block_k0s),'\n')
-       #         if block_k0 not in block_k0s:
-       #             check_flag = False
+            for block_k1 in block_k1s:
+                # all the space block_k1 should contain block_k0
+                block_k0s,i_xyz_0s = sh5f1.get_sub_block_ks(block_k1,sh5f0)
+                print('k1 = ',block_k1,'  block_k0 = ',block_k0s,'\nlen = ',len(block_k0s),'\n')
+                if block_k0 not in block_k0s:
+                    check_flag = False
 
-       #         for block_k0_ in block_k0s:
-       #             # all the scope block_k0_ should constain
-       #             block_k1s_,i_xyz_1s_ = sh5f0.get_sub_block_ks(block_k0_,sh5f1)
-       #             if block_k1 not in block_k1s_:
-       #                 check_flag = False
-       #     if check_flag:
-       #         print('all check passed')
-       #     else:
-       #         print('check failed')
+                for block_k0_ in block_k0s:
+                    # all the scope block_k0_ should constain
+                    block_k1s_,i_xyz_1s_ = sh5f0.get_sub_block_ks(block_k0_,sh5f1)
+                    if block_k1 not in block_k1s_:
+                        check_flag = False
+            if check_flag:
+                print('all check passed')
+            else:
+                print('check failed')
 
 def Do_Check_xyz():
     #fnl = glob.glob(os.path.join(folder,'*.hdf5'))
@@ -659,7 +660,7 @@ class OUTDOOR_DATA_PREP():
 
     def Do_merge_blocks(self,stride_x=2,step_x=4):
         #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_step_0d5_stride_0d5,   '*_step_0d5_stride_0d5.h5') )
-        file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_rawh5,   'bildstein_station5_stride_1_step_1_sub_m80_m5.h5') )
+        file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1,   'bildstein_station5_stride_1_step_1*.h5') )
         #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_step_10_stride_10,   '*_blocked.h5_sorted_step_10_stride_10.hdf5') )
         block_step = (np.array([1,1,1])*step_x).astype(np.int)
         block_stride = (np.array([1,1,1])*stride_x).astype(np.int)
@@ -667,7 +668,7 @@ class OUTDOOR_DATA_PREP():
         print('step = ',block_step)
         print('stride = ',block_stride)
 
-        IsMulti_merge = False
+        IsMulti_merge = True
         if not IsMulti_merge:
             for file_name in file_list:
                 self.merge_blocks_to_new_step(file_name,block_step,block_stride)
@@ -1067,9 +1068,9 @@ def Do_gen_raw_obj():
             raw_h5f.generate_objfile(obj_fn)
 
 def Do_gen_sorted_block_obj():
-    folder_path = GLOBAL_PARA.ETH_A_rawh5
+    folder_path = GLOBAL_PARA.ETH_A_stride_1_step_1
     file_list = glob.glob( os.path.join(folder_path,\
-                 'bildstein_station5_sub_m30_0_stride_20_step_20.h5') )
+                 'bildstein_station5_stride_1_step_1_sub_m80_m5.h5') )
     for fn in file_list:
         base_fn = os.path.basename(fn)
         base_fn = os.path.splitext(base_fn)[0]
@@ -1083,18 +1084,18 @@ def Do_gen_sorted_block_obj():
 
 def main():
     outdoor_prep = OUTDOOR_DATA_PREP()
-    outdoor_prep.Do_sort_to_blocks()
-    Do_extract_sub_area()
-    outdoor_prep.Do_merge_blocks(stride_x=4,step_x=8)
-    #outdoor_prep.Do_merge_blocks(stride_x=2,step_x=4)
-    #outdoor_prep.Do_merge_blocks(stride_x=1,step_x=2)
+    #outdoor_prep.Do_sort_to_blocks()
+    #Do_extract_sub_area()
+    #outdoor_prep.Do_merge_blocks(stride_x=4,step_x=8)
+    outdoor_prep.Do_merge_blocks(stride_x=2,step_x=4)
+    outdoor_prep.Do_merge_blocks(stride_x=1,step_x=2)
     #outdoor_prep.test_sub_block_ks()
     #outdoor_prep.DO_add_geometric_scope_file()
     #outdoor_prep.DO_gen_rawETH_to_h5()
 
 if __name__ == '__main__':
-    main()
-    #Do_gen_sorted_block_obj()
+    #main()
+    Do_gen_sorted_block_obj()
     #Do_gen_raw_obj()
     #Add_sorted_total_row_block_N()
     #Do_Check_xyz()
