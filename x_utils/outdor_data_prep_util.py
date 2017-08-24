@@ -25,8 +25,9 @@ class GLOBAL_PARA():
     ETH_A_rawh5 = os.path.join( ETH_traing_A,'part_A_rawh5' )
     ETH_A_stride_1_step_1 = os.path.join( ETH_traing_A, 'A_stride_1_step_1' )
     ETH_A_stride_2_step_2 = os.path.join( ETH_traing_A, 'A_stride_2_step_2' )
+    ETH_A_stride_4_step_8 = os.path.join( ETH_traing_A, 'A_stride_4_step_8' )
     ETH_A_stride_5_step_5 = os.path.join( ETH_traing_A, 'A_stride_5_step_5' )
-    ETH_A_stride_10_step_10 = os.path.join( ETH_traing_A, 'A_stride_10_step_10' )
+    ETH_A_stride_8_step_8 = os.path.join( ETH_traing_A, 'A_stride_8_step_8' )
     ETH_A_stride_20_step_10 = os.path.join( ETH_traing_A, 'A_stride_20_step_10' )
     h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
     h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
@@ -183,14 +184,18 @@ class Sorted_H5f():
         return total_row_N, n+1
 
     def copy_root_summaryinfo_from_another(self,h5f0,copy_flag):
-        if copy_flag == 0:
+        if copy_flag =='new_stride':
             attrs = ['xyz_max','xyz_min']
         elif copy_flag == 1:
             attrs = ['xyz_max','xyz_min','total_row_N','total_block_N']
-        elif copy_flag == 2:
+        elif copy_flag == 'sub':
             attrs = ['xyz_max','xyz_min','block_step','block_stride']
+        elif copy_flag == 'sampled':
+            attrs = ['xyz_max','xyz_min','total_block_N','block_step','block_stride']
         elif copy_flag == 3:
             attrs = ['xyz_max','xyz_min','total_row_N','total_block_N','block_step','block_stride']
+        else:
+            attrs = ['xyz_max','xyz_min']
 
         for attr in attrs:
             if attr in h5f0.attrs:
@@ -469,27 +474,21 @@ class Sorted_H5f():
 #                    print('equal check failed: block_k=%s '%(block_k))
         return check_flag
 
-    def append_to_dset(self,aim_block_k,source_dset,vacant_size=0):
+    def append_to_dset(self,aim_block_k,source_dset,vacant_size=0,sample_choice=None):
+        '''
+        if append frequently to one dataset, vacant_size > 0 to avoid frequent resize
+        '''
+        if sample_choice == None:
+            sample_choice = np.arange(source_dset.shape[0])
         aim_dset = self.get_blocked_dset(aim_block_k,vacant_size)
         row_step = self.h5_chunk_row_step_1M * 10
         org_row_N = aim_dset.attrs['valid_num']
-        new_row_N = source_dset.shape[0]
+        new_row_N = sample_choice.size
         aim_dset.resize((org_row_N+new_row_N+vacant_size,aim_dset.shape[1]))
         for k in range(0,new_row_N,row_step):
             end = min(k+row_step,new_row_N)
-            aim_dset[org_row_N+k:org_row_N+end,:] = source_dset[k:end,:]
-            aim_dset.attrs['valid_num'] = end + org_row_N
-
-
-    def append_to_group(self,aim_block_k,source_group,vacant_size=0):
-        aim_group = self.get_blocked_dset(aim_block_k,vacant_size)
-        row_step = self.h5_chunk_row_step_1M * 10
-        org_row_N = aim_dset.attrs['valid_num']
-        new_row_N = source_dset.shape[0]
-        aim_dset.resize((org_row_N+new_row_N+vacant_size,aim_dset.shape[1]))
-        for k in range(0,new_row_N,row_step):
-            end = min(k+row_step,new_row_N)
-            aim_dset[org_row_N+k:org_row_N+end,:] = source_dset[k:end,:]
+            choice_k = sample_choice[k:end]
+            aim_dset[org_row_N+k:org_row_N+end,:] = source_dset[choice_k,:]
             aim_dset.attrs['valid_num'] = end + org_row_N
 
     def generate_one_block_to_object(self,block_k,out_obj_file):
@@ -541,7 +540,7 @@ class Sorted_H5f():
         with h5py.File(sub_file_name,'w') as sub_h5f:
             sub_f = Sorted_H5f(sub_h5f,sub_file_name)
 
-            sub_f.copy_root_summaryinfo_from_another(self.sorted_h5f,2)
+            sub_f.copy_root_summaryinfo_from_another(self.sorted_h5f,'sub')
             sub_f.set_step_stride(self.block_step,self.block_stride)
             for dset_name_i in self.sorted_h5f:
                 xyz_min_i = self.sorted_h5f[dset_name_i].attrs['xyz_min']
@@ -551,6 +550,30 @@ class Sorted_H5f():
                     sub_f.append_to_dset(dset_name_i,self.sorted_h5f[dset_name_i])
             sub_f.add_total_row_block_N()
 
+    def sample_k(self,k,aim_N):
+        dset = self.sorted_h5f[str(k)]
+        N = dset.shape[0]
+        if N == aim_N:
+            return
+        sample = np.random.choice(N,aim_N)
+        new_data = dset[sample,...]
+
+    def file_sample(self,sample_num,sampled_filename):
+        with h5py.File(sampled_filename,'w') as sampled_h5f:
+            sampled_sh5f = Sorted_H5f(sampled_h5f,sampled_filename)
+            sampled_sh5f.copy_root_summaryinfo_from_another(self.sorted_h5f,'sampled')
+            for k_str in self.sorted_h5f:
+                dset_k = self.sorted_h5f[k_str]
+                sample_choice = sample(dset_k.shape[0],sample_num)
+                sampled_sh5f.append_to_dset(int(k_str),dset_k,vacant_size=0,sample_choice=sample_choice)
+
+
+    def normalization(self):
+        '''
+        (1) xyz/max
+        (2) xy-min-block_size/2  (only xy)
+        '''
+        pass
 
 def Test_sub_block_ks():
     h5f_name0 = os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1,'bildstein_station5_stride_1_step_1_sub_m80_m5.h5')
@@ -563,7 +586,7 @@ def Test_sub_block_ks():
         block_step1 = np.array([1,1,1])*4
         block_stride1 = np.array([1,1,1])*2
 
-        sh5f1.copy_root_summaryinfo_from_another(h5f0,0)
+        sh5f1.copy_root_summaryinfo_from_another(h5f0,'new_stride')
         sh5f1.set_step_stride(block_step1,block_stride1)
 
         for i,block_k0_str in enumerate( sh5f0.sorted_h5f ):
@@ -694,7 +717,7 @@ class OUTDOOR_DATA_PREP():
             with h5py.File(new_name,'w') as new_h5f:
                 base_sh5f = Sorted_H5f(base_h5f,base_file_name)
                 new_sh5f = Sorted_H5f(new_h5f,new_name)
-                new_sh5f.copy_root_summaryinfo_from_another(base_h5f,0)
+                new_sh5f.copy_root_summaryinfo_from_another(base_h5f,'new_stride')
                 new_sh5f.set_step_stride(larger_step,larger_stride)
 
                 read_row_N = 0
@@ -1068,9 +1091,9 @@ def Do_gen_raw_obj():
             raw_h5f.generate_objfile(obj_fn)
 
 def Do_gen_sorted_block_obj():
-    folder_path = GLOBAL_PARA.ETH_A_stride_1_step_1
+    folder_path = GLOBAL_PARA.ETH_A_stride_8_step_8
     file_list = glob.glob( os.path.join(folder_path,\
-                 'bildstein_station5_stride_1_step_1_sub_m80_m5.h5') )
+                 'bildstein_station5_sub_m80_m5_stride_8_step_8.h5') )
     for fn in file_list:
         base_fn = os.path.basename(fn)
         base_fn = os.path.splitext(base_fn)[0]
@@ -1086,9 +1109,10 @@ def main():
     outdoor_prep = OUTDOOR_DATA_PREP()
     #outdoor_prep.Do_sort_to_blocks()
     #Do_extract_sub_area()
+    outdoor_prep.Do_merge_blocks(stride_x=8,step_x=8)
     #outdoor_prep.Do_merge_blocks(stride_x=4,step_x=8)
-    outdoor_prep.Do_merge_blocks(stride_x=2,step_x=4)
-    outdoor_prep.Do_merge_blocks(stride_x=1,step_x=2)
+    #outdoor_prep.Do_merge_blocks(stride_x=2,step_x=4)
+    #outdoor_prep.Do_merge_blocks(stride_x=1,step_x=2)
     #outdoor_prep.test_sub_block_ks()
     #outdoor_prep.DO_add_geometric_scope_file()
     #outdoor_prep.DO_gen_rawETH_to_h5()
