@@ -108,7 +108,7 @@ def get_learning_rate(batch):
                         DECAY_RATE,          # Decay rate.
                         staircase=True)
     learing_rate = tf.maximum(learning_rate, 0.00001) # CLIP THE LEARNING RATE!!
-    return learning_rate        
+    return learning_rate
 
 def get_bn_decay(batch):
     bn_momentum = tf.train.exponential_decay(
@@ -125,14 +125,14 @@ def train():
         with tf.device('/gpu:'+str(GPU_INDEX)):
             pointclouds_pl, labels_pl = placeholder_inputs(BATCH_SIZE, NUM_POINT)
             is_training_pl = tf.placeholder(tf.bool, shape=())
-            
-            # Note the global_step=batch parameter to minimize. 
+
+            # Note the global_step=batch parameter to minimize.
             # That tells the optimizer to helpfully increment the 'batch' parameter for you every time it trains.
             batch = tf.Variable(0)
             bn_decay = get_bn_decay(batch)
             tf.summary.scalar('bn_decay', bn_decay)
 
-            # Get model and loss 
+            # Get model and loss
             pred = get_model(pointclouds_pl, is_training_pl, bn_decay=bn_decay)
             loss = get_loss(pred, labels_pl)
             tf.summary.scalar('loss', loss)
@@ -149,10 +149,10 @@ def train():
             elif OPTIMIZER == 'adam':
                 optimizer = tf.train.AdamOptimizer(learning_rate)
             train_op = optimizer.minimize(loss, global_step=batch)
-            
+
             # Add ops to save and restore all the variables.
             saver = tf.train.Saver()
-            
+
         # Create a session
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -182,10 +182,10 @@ def train():
         for epoch in range(MAX_EPOCH):
             log_string('**** EPOCH %03d ****' % (epoch))
             sys.stdout.flush()
-             
+
             train_one_epoch(sess, ops, train_writer)
             eval_one_epoch(sess, ops, test_writer)
-            
+
             # Save the variables to disk.
             if epoch % 10 == 0:
                 save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
@@ -196,23 +196,23 @@ def train():
 def train_one_epoch(sess, ops, train_writer):
     """ ops: dict mapping from string to tf ops """
     is_training = True
-    
+
     log_string('----')
-    current_data, current_label, _ = provider.shuffle_data(train_data[:,0:NUM_POINT,:], train_label) 
-    
+    current_data, current_label, _ = provider.shuffle_data(train_data[:,0:NUM_POINT,:], train_label)
+
     file_size = current_data.shape[0]
     num_batches = file_size // BATCH_SIZE
-    
+
     total_correct = 0
     total_seen = 0
     loss_sum = 0
-    
+
     for batch_idx in range(num_batches):
         if batch_idx % 100 == 0:
             print('Current batch/total batch num: %d/%d'%(batch_idx,num_batches))
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
-        
+
         feed_dict = {ops['pointclouds_pl']: current_data[start_idx:end_idx, :, :],
                      ops['labels_pl']: current_label[start_idx:end_idx],
                      ops['is_training_pl']: is_training,}
@@ -224,11 +224,11 @@ def train_one_epoch(sess, ops, train_writer):
         total_correct += correct
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum += loss_val
-    
+
     log_string('mean loss: %f' % (loss_sum / float(num_batches)))
     log_string('accuracy: %f' % (total_correct / float(total_seen)))
 
-        
+
 def eval_one_epoch(sess, ops, test_writer):
     """ ops: dict mapping from string to tf ops """
     is_training = False
@@ -237,14 +237,14 @@ def eval_one_epoch(sess, ops, test_writer):
     loss_sum = 0
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
-    
+
     log_string('----')
     current_data = test_data[:,0:NUM_POINT,:]
     current_label = np.squeeze(test_label)
-    
+
     file_size = current_data.shape[0]
     num_batches = file_size // BATCH_SIZE
-    
+
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
@@ -265,11 +265,11 @@ def eval_one_epoch(sess, ops, test_writer):
                 l = current_label[i, j]
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i-start_idx, j] == l)
-            
+
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen/NUM_POINT)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
-         
+
 
 
 if __name__ == "__main__":
