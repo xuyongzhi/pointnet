@@ -38,7 +38,6 @@ class GLOBAL_PARA():
 
 
 
-
 def rm_file_name_midpart(fn,rm_part):
     base_name = os.path.basename(fn)
     parts = base_name.split(rm_part)
@@ -125,8 +124,18 @@ class Raw_H5f():
 
 
 class Sorted_H5f():
+    raw_elements = 'xyz-color-label-intensity-orgrowindex'
+    norm_elements = 'xyz_norm1-xyz_norm2-color_norm'
+    raw_xyz_index = range(0,3)
+    raw_color_indx = range(3,6)
+    raw_label_index = range(6,7)
+    raw_intensity_index = range(7,8)
+    raw_orgrowindex = range(8,9)
+
+    actions = ''
     stride_to_align = 8
     h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
+
     def __init__(self,sorted_h5f,file_name=None):
         self.sorted_h5f = sorted_h5f
         self.get_summary_info()
@@ -192,7 +201,7 @@ class Sorted_H5f():
             attrs = ['xyz_max','xyz_min','total_row_N','total_block_N']
         elif copy_flag == 'sub': # sampled
             attrs = ['xyz_max','xyz_min','block_step','block_stride']
-        elif copy_flag == 3:
+        elif copy_flag == 'all':
             attrs = ['xyz_max','xyz_min','total_row_N','total_block_N','block_step','block_stride']
         else:
             attrs = ['xyz_max','xyz_min']
@@ -216,6 +225,12 @@ class Sorted_H5f():
         xyz_min_aligned = xyz_min - xyz_min % self.stride_to_align - [0,0,1]
         xyz_max_aligned = xyz_max - xyz_max % 1 + 1
         xyz_scope_aligned =  xyz_max_aligned - xyz_min_aligned
+        # step or stride ==-1 means one step/stride the whole scene
+        for i in range(0,3):
+            if block_step[i]  == -1:
+                block_step[i] = xyz_scope_aligned[i]
+            if block_stride[i]  == -1:
+                block_stride[i] = xyz_scope_aligned[i]
         block_dims_N = np.ceil(xyz_scope_aligned / block_stride).astype(np.int64)
         self.sorted_h5f.attrs['block_step'] = block_step
         self.sorted_h5f.attrs['block_stride'] = block_stride
@@ -300,7 +315,6 @@ class Sorted_H5f():
                             if not max_check:
                                 print('\nmax check failed in get_sub_blcok_ks')
                                 print('new max = ',max_k_new,'\norg max = ',max_k)
-                            import pdb; pdb.set_trace()  # XXX BREAKPOINT
 
                         else:
                             i_xyz_new_list.append(i_xyz_new)
@@ -356,7 +370,7 @@ class Sorted_H5f():
                             block_k_new_list.append(block_k_new)
         return block_k_new_list,i_xyz_new_list
 
-    def get_blocked_dset(self,block_k,new_set_default_rows=None):
+    def get_blocked_dset(self,block_k,new_set_default_rows=None,column_N = 9):
         if not type(block_k) is int:
             block_k = int(block_k)
 
@@ -365,11 +379,10 @@ class Sorted_H5f():
             return self.sorted_h5f[dset_name]
         if new_set_default_rows==None:
             new_set_default_rows = self.h5_chunk_row_step_1M
-        n = 9
         #dset = self.h5f_blocked.create_dataset( dset_name,shape=(new_set_default_rows,n),\
                 #maxshape=(None,n),dtype=np.float32,chunks=(self.h5_chunk_row_step_1M/5,n) )
-        dset = self.sorted_h5f.create_dataset( dset_name,shape=(new_set_default_rows,n),\
-                maxshape=(None,n),dtype=np.float32,compression="gzip"  )
+        dset = self.sorted_h5f.create_dataset( dset_name,shape=(new_set_default_rows,column_N),\
+                maxshape=(None,column_N),dtype=np.float32,compression="gzip"  )
         dset.attrs['valid_num']=0
         block_min, block_max,i_xyz = self.get_block_scope_from_k(block_k)
         dset.attrs['i_xyz'] = i_xyz
@@ -584,11 +597,13 @@ class Sorted_H5f():
                 #sample_choice = np.arange(org_N)
                 new_samp = np.random.choice(org_N,sample_N-org_N)
                 sample_choice = np.concatenate( (np.arange(org_N),new_samp) )
-            str = '%d -> %d  %d%%'%(org_N,sample_N,100.0*sample_N/org_N)
+            #str = '%d -> %d  %d%%'%(org_N,sample_N,100.0*sample_N/org_N)
             #print(str)
         return sample_choice
 
-    def file_sample(self,sampled_filename,sample_num,sample_method):
+    def file_sample(self,sample_num,sample_method,gen_norm=False,gen_obj=False):
+        parts = os.path.splitext(self.file_name)
+        sampled_filename =  parts[0]+'_'+sample_method+'_'+str(sample_num)+parts[1]
         print('start genrating sampled file: ',sampled_filename)
         ave_dset_num = self.total_row_N /  self.total_block_N
         print('ave_org_num = ',ave_dset_num)
@@ -598,133 +613,61 @@ class Sorted_H5f():
             sampled_sh5f.copy_root_summaryinfo_from_another(self.sorted_h5f,'sub')
             for i, k_str in enumerate( self.sorted_h5f ):
                 dset_k = self.sorted_h5f[k_str]
-                if dset_k.shape[0] < sample_num*0.2:
+                if dset_k.shape[0] < sample_num*0.3:
                     continue
                 sampled_sh5f.append_to_dset(int(k_str),dset_k,vacant_size=0,\
                                             sample_method=sample_method,sample_num=sample_num)
-            print('reduced_num = %d  %d%%'%(sampled_sh5f.reduced_num,100.0*sampled_sh5f.reduced_num/self.total_row_N ))
             sampled_sh5f.add_total_row_block_N()
-            #sampled_sh5f.generate_blocks_to_object()
+            print('reduced_num = %d  %d%%'%(sampled_sh5f.reduced_num,100.0*sampled_sh5f.reduced_num/self.total_row_N ))
+            reduced_block_N = self.total_block_N - sampled_sh5f.total_block_N
+            print('reduced block num = %d  %d%%'%(reduced_block_N,100*reduced_block_N/self.total_block_N))
 
+            if gen_obj:
+               sampled_sh5f.generate_blocks_to_object()
+            if gen_norm:
+                sampled_sh5f.file_normalization()
 
-    def normalization(self):
+    def normalize_dset(self,raw_dset_k,block_k_str):
         '''
         (1) xyz/max
         (2) xy-min-block_size/2  (only xy)
+        color / 255
         '''
-        pass
-def Do_sample():
-    global g_file_list
-    #h5f_name = os.path.join(GLOBAL_PARA.ETH_A_stride_8_step_8,\
-                      #'bildstein_station5_sub_m80_m5_stride_8_step_8.h5')
-    for h5f_name in g_file_list:
-        sample_num =  4096
-        sample_method = 'random'
-        parts = os.path.splitext(h5f_name)
-        sampled_filename =  parts[0]+'_'+sample_method+'_'+str(sample_num)+parts[1]
-        with h5py.File(h5f_name,'r') as h5f:
-            sh5f = Sorted_H5f(h5f,h5f_name)
-            sh5f.file_sample(sampled_filename,sample_num,sample_method)
+        batch_zero_flag = 'local'
+        color_norm = raw_dset_k[:,self.raw_color_indx] / 255.0
+        if batch_zero_flag == 'global':
+            batch_zero = self.xyz_min_aligned
+        else:
+            batch_zero = raw_dset_k.attrs['xyz_min']
+        xyz = raw_dset_k[:,self.raw_xyz_index] - batch_zero
+        xyz_max = xyz.max(axis=0)
+        xyz_min = xyz.min(axis=0)
+        block_mid = (raw_dset_k.attrs['xyz_min'] + raw_dset_k.attrs['xyz_max'] ) / 2
+        xyz_norm1 = xyz / xyz_max
+        xyz_norm2 = xyz
+        xyz_norm2[:,0:2] -= (xyz_min[0:2] + block_mid[0:2])
+
+        data_norm = np.hstack( (xyz_norm1,xyz_norm2,color_norm) )
+        dset_norm = self.get_blocked_dset(block_k_str,new_set_default_rows=data_norm.shape[0],column_N=9)
+        dset_norm[:,:] = data_norm
+
+        #print('raw: \n',raw_dset_k[0,:])
+        #print('norm:\n',dset_norm[0,:])
+
+    def file_normalization(self):
+        parts = os.path.splitext(self.file_name)
+        normalized_filename =  parts[0]+'_norm'+parts[1]
+        print('stat gen normalized file: ',normalized_filename)
+        with h5py.File(normalized_filename,'w') as norm_f:
+            norm_sh5f = Sorted_H5f(norm_f,normalized_filename)
+            norm_sh5f.copy_root_summaryinfo_from_another(self.sorted_h5f,'all')
+            norm_sh5f.set_root_attr('elements', self.norm_elements)
+            for i,k_str in  enumerate(self.sorted_h5f):
+                raw_dset_k = self.sorted_h5f[k_str]
+                norm_sh5f.normalize_dset(raw_dset_k,k_str)
 
 
-def Test_sub_block_ks():
-    h5f_name0 = os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1,'bildstein_station5_stride_1_step_1_sub_m80_m5.h5')
-    h5f_name1 = os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1,'t_bildstein_station5_stride_1_step_1_sub_m80_m5.h5')
-    with h5py.File(h5f_name0,'r') as h5f0:
-      with h5py.File(h5f_name1,'w') as h5f1:
-        sh5f0 = Sorted_H5f(h5f0)
-        sh5f1 = Sorted_H5f(h5f1)
-
-        block_step1 = np.array([1,1,1])*4
-        block_stride1 = np.array([1,1,1])*2
-
-        sh5f1.copy_root_summaryinfo_from_another(h5f0,'new_stride')
-        sh5f1.set_step_stride(block_step1,block_stride1)
-
-        for i,block_k0_str in enumerate( sh5f0.sorted_h5f ):
-            if i > 3:
-                break
-            block_k0 = int(block_k0_str)
-            check_flag = True
-            #print('block_k0 = ',block_k0)
-            block_k1s,i_xyz_1s = sh5f0.get_sub_block_ks(block_k0,sh5f1)
-            print('block_k1s = ',len(block_k1s),'   ',block_k1s,'\n')
-            for block_k1 in block_k1s:
-                # all the space block_k1 should contain block_k0
-                block_k0s,i_xyz_0s = sh5f1.get_sub_block_ks(block_k1,sh5f0)
-                print('k1 = ',block_k1,'  block_k0 = ',block_k0s,'\nlen = ',len(block_k0s),'\n')
-                if block_k0 not in block_k0s:
-                    check_flag = False
-
-                for block_k0_ in block_k0s:
-                    # all the scope block_k0_ should constain
-                    block_k1s_,i_xyz_1s_ = sh5f0.get_sub_block_ks(block_k0_,sh5f1)
-                    if block_k1 not in block_k1s_:
-                        check_flag = False
-            if check_flag:
-                print('all check passed')
-            else:
-                print('check failed')
-
-def Do_Check_xyz():
-    #fnl = glob.glob(os.path.join(folder,'*.hdf5'))
-    #for fn in fnl:
-        raw_fn = os.path.join(GLOBAL_PARA.ETH_A_rawh5,'bildstein_station5_xyz_intensity_rgb.hdf5')
-        fn_s = os.path.join( GLOBAL_PARA.ETH_A_stride_1_step_1,'bildstein_station5_sub_m80_m5_stride_2_step_4.h5')
-        fn_s = os.path.join( GLOBAL_PARA.ETH_A_stride_1_step_1,'bildstein_station5_sub_m80_m5_stride_4_step_8.h5')
-        print('checking equal and  xyz scope of file: ',fn_s)
-        with h5py.File(raw_fn,'r') as h5f:
-            with h5py.File(fn_s,'r') as sh5f:
-                sorted_h5f = Sorted_H5f(sh5f,raw_fn)
-                #sorted_h5f.show_summary_info()
-               # flag1 = sorted_h5f.check_equal_to_raw(h5f)
-               # if flag1:
-               #     print('equal check passed')
-               # else:
-               #     print('equal check failed')
-                flag2 = sorted_h5f.check_xyz_scope()
-                if flag2:
-                    print('xyz scope check passed')
-                else:
-                    print('xyz scope check failed')
-
-
-def Do_extract_sub_area():
-    folder = GLOBAL_PARA.ETH_A_rawh5
-    fnl = glob.glob(os.path.join(folder,'bildstein_station5_stride_1_step_1.h5'))
-    #sub_xyz_scope = np.array([[-30,-30,-20],[0,0,50]])
-    #new_flag = '_sub_m30_0'
-    sub_xyz_scope = np.array([[-80,-80,-20],[-5,-5,50]])
-    new_flag = '_sub_m80_m5'
-    print('sub_scope:\n',sub_xyz_scope)
-    for fn in fnl:
-        fn_parts =  os.path.splitext(fn)
-        new_name = fn_parts[0]+new_flag+fn_parts[1]
-        print('sub file name: ',new_name)
-        with h5py.File(fn,'r') as s_h5f:
-            sorted_h5f = Sorted_H5f(s_h5f,fn)
-            sorted_h5f.extract_sub_area(sub_xyz_scope,new_name)
-
-
-def Add_sorted_total_row_block_N_onefile(fn):
-        print('calculating row_N block_N of: ',fn)
-        with h5py.File(fn,'a') as h5f:
-            sorted_h5f = Sorted_H5f(h5f,fn)
-            rN,bN = sorted_h5f.add_total_row_block_N()
-            print('rn= ',rN, '  bN= ',bN,'\n')
-def Add_sorted_total_row_block_N():
-    folder = GLOBAL_PARA.ETH_A_step_20_stride_10
-    fnl = glob.glob(os.path.join(folder,'*.hdf5'))
-    IsMulti_aN = False
-    if not IsMulti_aN:
-        for fn in fnl:
-            Add_sorted_total_row_block_N_onefile(fn)
-    else:
-        p = mp.Pool(3)
-        p.map(Add_sorted_total_row_block_N_onefile,fnl)
-        p.close()
-        p.join()
-
+#-------------------------------------------------------------------------------
 
 class OUTDOOR_DATA_PREP():
 
@@ -733,24 +676,24 @@ class OUTDOOR_DATA_PREP():
         #print(self.ETH_training_partAh5_folder)
 
 
-    def Do_merge_blocks(self,stride_x=2,step_x=4):
-        global g_file_list
+    def Do_merge_blocks(self,file_list,stride=[4,4,4],step=[8,8,8]):
         #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_step_0d5_stride_0d5,   '*_step_0d5_stride_0d5.h5') )
         #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1,   '*_4096.h5') )
         #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_step_10_stride_10,   '*_blocked.h5_sorted_step_10_stride_10.hdf5') )
-        block_step = (np.array([1,1,1])*step_x).astype(np.int)
-        block_stride = (np.array([1,1,1])*stride_x).astype(np.int)
+        block_step = (np.array(step)).astype(np.int)
+        block_stride = (np.array(stride)).astype(np.int)
         #block_stride = (block_step*0.5).astype(np.int)
         print('step = ',block_step)
         print('stride = ',block_stride)
 
         IsMulti_merge = True
         if not IsMulti_merge:
-            for file_name in g_file_list:
-                self.merge_blocks_to_new_step(file_name,block_step,block_stride)
+            for file_name in file_list:
+                merged_name = self.merge_blocks_to_new_step(file_name,block_step,block_stride)
+                merged_names.append(merged_name)
         else:
             pool = []
-            for file_name in g_file_list:
+            for file_name in file_list:
                 p = mp.Process( target=self.merge_blocks_to_new_step, args=(file_name,block_step,block_stride,) )
                 p.start()
                 pool.append(p)
@@ -763,7 +706,14 @@ class OUTDOOR_DATA_PREP():
         '''
         #new_name = base_file_name.split('_xyz_intensity_rgb')[0] + '_step_' + str(larger_step[0]) + '_stride_' + str(larger_stride[0]) + '.hdf5'
         tmp = rm_file_name_midpart(base_file_name,'_stride_1_step_1')
-        new_name = os.path.splitext(tmp)[0]  + '_stride_' + str(larger_stride[0])+ '_step_' + str(larger_step[0]) + '.h5'
+        new_part = '_stride_' + str(larger_stride[0])+ '_step_' + str(larger_step[0])
+        if larger_step[2] != larger_step[0]:
+            if larger_step[2]>0:
+                new_part += '_z' + str(larger_step[2])
+            else:
+                new_part += '_zall'
+
+        new_name = os.path.splitext(tmp)[0]  + new_part + '.h5'
         print('new file: ',new_name)
         print('id = ',os.getpid())
         with  h5py.File(base_file_name,'r') as base_h5f:
@@ -806,7 +756,13 @@ class OUTDOOR_DATA_PREP():
                 print('total_block_N = ',total_block_N)
                 new_sh5f.sorted_h5f.flush()
 
-                new_sh5f.check_xyz_scope()
+                #new_sh5f.check_xyz_scope()
+
+                if 'sample_merged' in self.actions:
+                    Is_gen_obj = 'obj_sampled_merged' in self.actions
+                    Is_gen_norm = 'norm_sampled_merged' in self.actions
+                    new_sh5f.file_sample(self.sample_num,self.sample_method,\
+                                         Is_gen_norm=Is_gen_norm,Is_gen_obj = Is_gen_obj)
 
 
     def gen_rawETH_to_h5(self,label_files_glob,line_num_limit=None):
@@ -968,7 +924,7 @@ class OUTDOOR_DATA_PREP():
             with h5py.File(file_name,'r') as h5_f:
                 self.raw_h5f = Raw_H5f(h5_f,file_name)
                 self.s_h5f = Sorted_H5f(h5f_blocked,blocked_file_name)
-                self.s_h5f.set_root_attr('elements','xyz-color-label-intensity-raw_k')
+                self.s_h5f.set_root_attr('elements',Sorted_H5f.raw_elements)
                 self.s_h5f.copy_root_geoinfo_from_raw( self.raw_h5f )
                 self.s_h5f.set_step_stride(block_step,block_step)
 
@@ -982,14 +938,14 @@ class OUTDOOR_DATA_PREP():
                     raw_buf = np.zeros((end-k,9))
                     #t0_k = time.time()
                     #print('start read %d:%d'%(k,end))
-                    raw_buf[:,0:3] = self.raw_h5f.xyz_dset[k:end,:]
-                    raw_buf[:,3:6] = self.raw_h5f.color_dset[k:end,:]
-                    raw_buf[:,6:7] = self.raw_h5f.label_dset[k:end,:]
-                    raw_buf[:,7:8] = self.raw_h5f.intensity_dset[k:end,:]
+                    raw_buf[:,Sorted_H5f.raw_xyz_index] = self.raw_h5f.xyz_dset[k:end,:]
+                    raw_buf[:,Sorted_H5f.raw_color_indx] = self.raw_h5f.color_dset[k:end,:]
+                    raw_buf[:,Sorted_H5f.raw_label_index] = self.raw_h5f.label_dset[k:end,:]
+                    raw_buf[:,Sorted_H5f.raw_intensity_index] = self.raw_h5f.intensity_dset[k:end,:]
                     if end < 16777215: # this is the largest int float32 can acurately present
-                        raw_buf[:,8] = np.arange(k,end)
+                        raw_buf[:,Sorted_H5f.raw_orgrowindex] = np.arange(k,end)
                     else:
-                        raw_buf[:,8] = -1
+                        raw_buf[:,Sorted_H5f.raw_orgrowindex] = -1
                     #t1_k = time.time()
                     #print('all read T=',time.time()-read_t0)
 
@@ -1127,16 +1083,143 @@ class OUTDOOR_DATA_PREP():
             pool.close()
             pool.join()
 
+    def main(self,file_list,actions,sample_num=4096,sample_method='random',stride=[4,4,100],step=[8,8,100]):
+        # self.actions: [
+        # 'merge','sample_merged','obj_sampled_merged','norm_sampled_merged' ]
+        self.actions = actions
+        self.sample_num = sample_num
+        self.sample_method = sample_method
+        self.stride = stride
+        self.step = step
+        if 'merge' in self.actions:
+            self.Do_merge_blocks(file_list,self.stride,self.step)
+
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 
+
+
+def Do_Norm(file_list):
+    for fn in file_list:
+        with h5py.File(fn,'r') as f:
+            sf = Sorted_H5f(f,fn)
+            sf.file_normalization()
+
+def Do_sample(file_list):
+    #h5f_name = os.path.join(GLOBAL_PARA.ETH_A_stride_8_step_8,\
+                      #'bildstein_station5_sub_m80_m5_stride_8_step_8.h5')
+    for h5f_name in file_list:
+        sample_num =  4096
+        sample_method = 'random'
+        with h5py.File(h5f_name,'r') as h5f:
+            sh5f = Sorted_H5f(h5f,h5f_name)
+            sh5f.file_sample(sample_num,sample_method)
+
+
+def Test_sub_block_ks():
+    h5f_name0 = os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1,'bildstein_station5_stride_1_step_1_sub_m80_m5.h5')
+    h5f_name1 = os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1,'t_bildstein_station5_stride_1_step_1_sub_m80_m5.h5')
+    with h5py.File(h5f_name0,'r') as h5f0:
+      with h5py.File(h5f_name1,'w') as h5f1:
+        sh5f0 = Sorted_H5f(h5f0)
+        sh5f1 = Sorted_H5f(h5f1)
+
+        block_step1 = np.array([1,1,1])*4
+        block_stride1 = np.array([1,1,1])*2
+
+        sh5f1.copy_root_summaryinfo_from_another(h5f0,'new_stride')
+        sh5f1.set_step_stride(block_step1,block_stride1)
+
+        for i,block_k0_str in enumerate( sh5f0.sorted_h5f ):
+            if i > 3:
+                break
+            block_k0 = int(block_k0_str)
+            check_flag = True
+            #print('block_k0 = ',block_k0)
+            block_k1s,i_xyz_1s = sh5f0.get_sub_block_ks(block_k0,sh5f1)
+            print('block_k1s = ',len(block_k1s),'   ',block_k1s,'\n')
+            for block_k1 in block_k1s:
+                # all the space block_k1 should contain block_k0
+                block_k0s,i_xyz_0s = sh5f1.get_sub_block_ks(block_k1,sh5f0)
+                print('k1 = ',block_k1,'  block_k0 = ',block_k0s,'\nlen = ',len(block_k0s),'\n')
+                if block_k0 not in block_k0s:
+                    check_flag = False
+
+                for block_k0_ in block_k0s:
+                    # all the scope block_k0_ should constain
+                    block_k1s_,i_xyz_1s_ = sh5f0.get_sub_block_ks(block_k0_,sh5f1)
+                    if block_k1 not in block_k1s_:
+                        check_flag = False
+            if check_flag:
+                print('all check passed')
+            else:
+                print('check failed')
+
+def Do_Check_xyz():
+    #fnl = glob.glob(os.path.join(folder,'*.hdf5'))
+    #for fn in fnl:
+        raw_fn = os.path.join(GLOBAL_PARA.ETH_A_rawh5,'bildstein_station5_xyz_intensity_rgb.hdf5')
+        fn_s = os.path.join( GLOBAL_PARA.ETH_A_stride_1_step_1,'bildstein_station5_sub_m80_m5_stride_2_step_4.h5')
+        fn_s = os.path.join( GLOBAL_PARA.ETH_A_stride_1_step_1,'bildstein_station5_sub_m80_m5_stride_4_step_8.h5')
+        print('checking equal and  xyz scope of file: ',fn_s)
+        with h5py.File(raw_fn,'r') as h5f:
+            with h5py.File(fn_s,'r') as sh5f:
+                sorted_h5f = Sorted_H5f(sh5f,raw_fn)
+                #sorted_h5f.show_summary_info()
+               # flag1 = sorted_h5f.check_equal_to_raw(h5f)
+               # if flag1:
+               #     print('equal check passed')
+               # else:
+               #     print('equal check failed')
+                flag2 = sorted_h5f.check_xyz_scope()
+                if flag2:
+                    print('xyz scope check passed')
+                else:
+                    print('xyz scope check failed')
+
+
+def Do_extract_sub_area():
+    folder = GLOBAL_PARA.ETH_A_rawh5
+    fnl = glob.glob(os.path.join(folder,'bildstein_station5_stride_1_step_1.h5'))
+    #sub_xyz_scope = np.array([[-30,-30,-20],[0,0,50]])
+    #new_flag = '_sub_m30_0'
+    sub_xyz_scope = np.array([[-80,-80,-20],[-5,-5,50]])
+    new_flag = '_sub_m80_m5'
+    print('sub_scope:\n',sub_xyz_scope)
+    for fn in fnl:
+        fn_parts =  os.path.splitext(fn)
+        new_name = fn_parts[0]+new_flag+fn_parts[1]
+        print('sub file name: ',new_name)
+        with h5py.File(fn,'r') as s_h5f:
+            sorted_h5f = Sorted_H5f(s_h5f,fn)
+            sorted_h5f.extract_sub_area(sub_xyz_scope,new_name)
+
+
+def Add_sorted_total_row_block_N_onefile(fn):
+        print('calculating row_N block_N of: ',fn)
+        with h5py.File(fn,'a') as h5f:
+            sorted_h5f = Sorted_H5f(h5f,fn)
+            rN,bN = sorted_h5f.add_total_row_block_N()
+            print('rn= ',rN, '  bN= ',bN,'\n')
+def Add_sorted_total_row_block_N():
+    folder = GLOBAL_PARA.ETH_A_step_20_stride_10
+    fnl = glob.glob(os.path.join(folder,'*.hdf5'))
+    IsMulti_aN = False
+    if not IsMulti_aN:
+        for fn in fnl:
+            Add_sorted_total_row_block_N_onefile(fn)
+    else:
+        p = mp.Pool(3)
+        p.map(Add_sorted_total_row_block_N_onefile,fnl)
+        p.close()
+        p.join()
 
 
 def Do_gen_raw_obj():
     global g_file_list
-    ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
-    folder_path = ETH_training_partAh5_folder
-    file_list = glob.glob( os.path.join(folder_path,'sg27_station5*.hdf5') )
+    #ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
+    #folder_path = ETH_training_partAh5_folder
+    #file_list = glob.glob( os.path.join(folder_path,'sg27_station5*.hdf5') )
     for fn in g_file_list:
         print(fn)
         obj_fn = os.path.splitext(fn)[0]+'.obj'
@@ -1155,29 +1238,31 @@ def Do_gen_sorted_block_obj():
             sorted_h5f.generate_blocks_to_object()
 
 
-def main():
+def main(file_list):
+
     outdoor_prep = OUTDOOR_DATA_PREP()
+    actions = ['merge','sample_merged','obj_sampled_merged','norm_sampled_merged']
+    actions = ['merge','sample_merged','norm_sampled_merged']
+    outdoor_prep.main(file_list,actions,sample_num=4096,sample_method='random',stride=[4,4,-1],step=[8,8,-1])
+
     #outdoor_prep.Do_sort_to_blocks()
     #Do_extract_sub_area()
-    #outdoor_prep.Do_merge_blocks(stride_x=8,step_x=8)
-    #outdoor_prep.Do_merge_blocks(stride_x=4,step_x=8)
-    outdoor_prep.Do_merge_blocks(stride_x=4,step_x=4)
-    #outdoor_prep.Do_merge_blocks(stride_x=2,step_x=4)
-    #outdoor_prep.Do_merge_blocks(stride_x=1,step_x=2)
     #outdoor_prep.test_sub_block_ks()
     #outdoor_prep.DO_add_geometric_scope_file()
     #outdoor_prep.DO_gen_rawETH_to_h5()
 
 if __name__ == '__main__':
-    global g_file_list
-    g_file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_4_step_4, \
-                'bildstein_station5_sub_m80_m5_stride_4_step_4.h5') )
-    #main()
+    #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_4_step_8, \
+                #'bildstein_station5_sub_m80_m5_stride_4_step_8_100_random_4096.h5') )
+    file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1, \
+                '*_4096.h5') )
+    #main(file_list)
     #Do_gen_raw_obj()
     #Add_sorted_total_row_block_N()
     #Do_Check_xyz()
     #Test_sub_block_ks()
-    Do_sample()
+    #Do_sample()
     #Do_gen_sorted_block_obj()
+    Do_Norm(file_list)
     T = time.time() - START_T
     print('exit main, T = ',T)
