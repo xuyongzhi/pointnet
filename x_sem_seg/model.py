@@ -23,36 +23,50 @@ def get_model(point_cloud, is_training, bn_decay=None):
 
     input_image = tf.expand_dims(point_cloud, -1)
     # CONV
-    net = tf_util.conv2d(input_image, 64, [1,9], padding='VALID', stride=[1,1],
+    # [b,4096,1,63]
+    net = tf_util.conv2d(input_image, 63, [1,9], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv1', bn_decay=bn_decay)
+    # [b,4096,1,64]
     net = tf_util.conv2d(net, 64, [1,1], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv2', bn_decay=bn_decay)
+    # [b,4096,1,64]
     net = tf_util.conv2d(net, 64, [1,1], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv3', bn_decay=bn_decay)
+    # [b,4096,1,128]
     net = tf_util.conv2d(net, 128, [1,1], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv4', bn_decay=bn_decay)
+    # [b,4096,1,1024]
     points_feat1 = tf_util.conv2d(net, 1024, [1,1], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv5', bn_decay=bn_decay)
     # MAX
+    # [b,1,1,1024]
     pc_feat1 = tf_util.max_pool2d(points_feat1, [num_point,1], padding='VALID', scope='maxpool1')
     # FC
+    # [b,1024]
     pc_feat1 = tf.reshape(pc_feat1, [batch_size, -1])
+    # [b,256]
     pc_feat1 = tf_util.fully_connected(pc_feat1, 256, bn=True, is_training=is_training, scope='fc1', bn_decay=bn_decay)
+    # [b,128]
     pc_feat1 = tf_util.fully_connected(pc_feat1, 128, bn=True, is_training=is_training, scope='fc2', bn_decay=bn_decay)
-    print(pc_feat1)
-   
-    # CONCAT 
+
+    # CONCAT
+    # [b,4096,1,128]
     pc_feat1_expand = tf.tile(tf.reshape(pc_feat1, [batch_size, 1, 1, -1]), [1, num_point, 1, 1])
+    # [b,4096,1,1152]
     points_feat1_concat = tf.concat(axis=3, values=[points_feat1, pc_feat1_expand])
-    
-    # CONV 
+
+    # CONV
+    # [b,4096,1,512]
     net = tf_util.conv2d(points_feat1_concat, 512, [1,1], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv6')
+    # [b,4096,1,256]
     net = tf_util.conv2d(net, 256, [1,1], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv7')
     net = tf_util.dropout(net, keep_prob=0.7, is_training=is_training, scope='dp1')
+    # [b,4096,1,13]
     net = tf_util.conv2d(net, 13, [1,1], padding='VALID', stride=[1,1],
                          activation_fn=None, scope='conv8')
+    # [b,4096,13]
     net = tf.squeeze(net, [2])
 
     return net

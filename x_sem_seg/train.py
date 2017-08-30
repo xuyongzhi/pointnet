@@ -11,7 +11,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 sys.path.append(ROOT_DIR)
-sys.path.append(os.path.join(ROOT_DIR, 'utils'))
+sys.path.append(os.path.join(ROOT_DIR, 'x_utils'))
 import provider
 import tf_util
 from model import *
@@ -30,6 +30,7 @@ parser.add_argument('--decay_rate', type=float, default=0.5, help='Decay rate fo
 parser.add_argument('--test_area', type=int, default=6, help='Which area to use for test, option: 1-6 [default: 6]')
 FLAGS = parser.parse_args()
 
+FLAGS.small_scale_data = True
 
 BATCH_SIZE = FLAGS.batch_size
 NUM_POINT = FLAGS.num_point
@@ -70,10 +71,14 @@ for h5_filename in ALL_FILES:
     data_batch, label_batch = provider.loadDataFile(h5_filename)
     data_batch_list.append(data_batch)
     label_batch_list.append(label_batch)
+    if FLAGS.small_scale_data:
+        break
+
 data_batches = np.concatenate(data_batch_list, 0)
 label_batches = np.concatenate(label_batch_list, 0)
-print(data_batches.shape)
-print(label_batches.shape)
+
+data_batches = data_batches[0:1000,:]
+label_batches = label_batches[0:1000,:]
 
 test_area = 'Area_'+str(FLAGS.test_area)
 train_idxs = []
@@ -83,15 +88,13 @@ for i,room_name in enumerate(room_filelist):
         test_idxs.append(i)
     else:
         train_idxs.append(i)
+    if FLAGS.small_scale_data and  i >= data_batches.shape[0]-1:
+        break
 
 train_data = data_batches[train_idxs,...]
 train_label = label_batches[train_idxs]
 test_data = data_batches[test_idxs,...]
 test_label = label_batches[test_idxs]
-print(train_data.shape, train_label.shape)
-print(test_data.shape, test_label.shape)
-
-
 
 
 def log_string(out_str):
