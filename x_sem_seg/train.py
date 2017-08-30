@@ -33,7 +33,6 @@ FLAGS = parser.parse_args()
 FLAGS.small_scale_data = True
 
 BATCH_SIZE = FLAGS.batch_size
-NUM_POINT = FLAGS.num_point
 MAX_EPOCH = FLAGS.max_epoch
 NUM_POINT = FLAGS.num_point
 BASE_LEARNING_RATE = FLAGS.learning_rate
@@ -67,18 +66,15 @@ room_filelist = [line.rstrip() for line in open('indoor3d_sem_seg_hdf5_data/room
 # Load ALL data
 data_batch_list = []
 label_batch_list = []
-for h5_filename in ALL_FILES:
+for i,h5_filename in enumerate(ALL_FILES):
     data_batch, label_batch = provider.loadDataFile(h5_filename)
     data_batch_list.append(data_batch)
     label_batch_list.append(label_batch)
-    if FLAGS.small_scale_data:
+    if FLAGS.small_scale_data and i>0:
         break
 
 data_batches = np.concatenate(data_batch_list, 0)
 label_batches = np.concatenate(label_batch_list, 0)
-
-data_batches = data_batches[0:1000,:]
-label_batches = label_batches[0:1000,:]
 
 test_area = 'Area_'+str(FLAGS.test_area)
 train_idxs = []
@@ -88,8 +84,11 @@ for i,room_name in enumerate(room_filelist):
         test_idxs.append(i)
     else:
         train_idxs.append(i)
-    if FLAGS.small_scale_data and  i >= data_batches.shape[0]-1:
-        break
+if FLAGS.small_scale_data:
+    n_train = int(data_batches.shape[0] * 0.8)
+    train_idxs = range(0,n_train)
+    test_idxs = range(n_train,data_batches.shape[0])
+    print('train num = %d   test num = %d'%(n_train,len(test_idxs)) )
 
 train_data = data_batches[train_idxs,...]
 train_label = label_batches[train_idxs]
@@ -186,7 +185,7 @@ def train():
             log_string('**** EPOCH %03d ****' % (epoch))
             sys.stdout.flush()
 
-            train_one_epoch(sess, ops, train_writer)
+            train_one_epoch(sess, ops, train_writer,epoch)
             eval_one_epoch(sess, ops, test_writer)
 
             # Save the variables to disk.
@@ -196,12 +195,12 @@ def train():
 
 
 
-def train_one_epoch(sess, ops, train_writer):
+def train_one_epoch(sess, ops, train_writer,epoch):
     """ ops: dict mapping from string to tf ops """
     is_training = True
 
     log_string('----')
-    current_data, current_label, _ = provider.shuffle_data(train_data[:,0:NUM_POINT,:], train_label)
+    current_data, current_label, _ = provider.shuffle_data(train_data[:,0:NUM_POINT,:], train_label[:,0:NUM_POINT])
 
     file_size = current_data.shape[0]
     num_batches = file_size // BATCH_SIZE
@@ -210,9 +209,14 @@ def train_one_epoch(sess, ops, train_writer):
     total_seen = 0
     loss_sum = 0
 
+    print('total batch num = ',num_batches)
+    def log_train():
+        log_string('epoch %d batch %d    train mean loss: %f' % (epoch,batch_idx,loss_sum / float(num_batches)))
+        log_string('epoch %d batch %d    train accuracy: %f' % (epoch,batch_idx,total_correct / float(total_seen)))
+
     for batch_idx in range(num_batches):
-        if batch_idx % 100 == 0:
-            print('Current batch/total batch num: %d/%d'%(batch_idx,num_batches))
+        #if batch_idx % 100 == 0:
+            #print('Current batch/total batch num: %d/%d'%(batch_idx,num_batches))
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
 
@@ -228,8 +232,10 @@ def train_one_epoch(sess, ops, train_writer):
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum += loss_val
 
-    log_string('mean loss: %f' % (loss_sum / float(num_batches)))
-    log_string('accuracy: %f' % (total_correct / float(total_seen)))
+        if (epoch == 0 and batch_idx <= 100) or batch_idx%100==0:
+            log_train()
+    log_string('\n')
+    log_train()
 
 
 def eval_one_epoch(sess, ops, test_writer):
@@ -243,7 +249,7 @@ def eval_one_epoch(sess, ops, test_writer):
 
     log_string('----')
     current_data = test_data[:,0:NUM_POINT,:]
-    current_label = np.squeeze(test_label)
+    current_label = np.squeeze(test_label[:,0:NUM_POINT])
 
     file_size = current_data.shape[0]
     num_batches = file_size // BATCH_SIZE
@@ -271,7 +277,9 @@ def eval_one_epoch(sess, ops, test_writer):
 
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen/NUM_POINT)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
-    log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
+    class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
+    log_string('eval class accuracies: %s' % (np.array_str(class_accuracies)))
+    log_string('eval avg class acc: %f' % (np.mean(class_accuracies)))
 
 
 

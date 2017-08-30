@@ -20,3 +20,4 @@ part_seg/test_results
 *.sh.o*
 *PBS
 *indoor3d_sem_seg_hdf5_data
+*/ETH3D_sem_seg_hdf5_data
