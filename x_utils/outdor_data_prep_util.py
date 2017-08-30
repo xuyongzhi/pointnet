@@ -18,10 +18,13 @@ import itertools
 START_T = time.time()
 
 g_h5_chunk_row_step_1M = 50*1000
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+UPER_DIR = os.path.dirname(ROOT_DIR)
 
 class GLOBAL_PARA():
-    ETH_traing_A =  '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training'
+    #ETH_traing_A =  '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training'
+    ETH_traing_A =  os.path.join(UPER_DIR,'Dataset/ETH_Semantic3D_Dataset/training')
     ETH_A_rawh5 = os.path.join( ETH_traing_A,'part_A_rawh5' )
     ETH_A_stride_1_step_1 = os.path.join( ETH_traing_A, 'A_stride_1_step_1' )
     ETH_A_stride_2_step_2 = os.path.join( ETH_traing_A, 'A_stride_2_step_2' )
@@ -30,6 +33,9 @@ class GLOBAL_PARA():
     ETH_A_stride_5_step_5 = os.path.join( ETH_traing_A, 'A_stride_5_step_5' )
     ETH_A_stride_8_step_8 = os.path.join( ETH_traing_A, 'A_stride_8_step_8' )
     ETH_A_stride_20_step_10 = os.path.join( ETH_traing_A, 'A_stride_20_step_10' )
+
+    ETH_final_path = os.path.join(ROOT_DIR,'x_sem_seg/ETH3D_sem_seg_hdf5_data')
+
     h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
     h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
     h5_chunk_row_step_100M = h5_chunk_row_step_1M * 100
@@ -125,7 +131,6 @@ class Raw_H5f():
 
 class Sorted_H5f():
     raw_elements = 'xyz-color-label-intensity-orgrowindex'
-    norm_elements = 'xyz_norm1-xyz_norm2-color_norm'
     raw_xyz_index = range(0,3)
     raw_color_indx = range(3,6)
     raw_label_index = range(6,7)
@@ -611,6 +616,8 @@ class Sorted_H5f():
         with h5py.File(sampled_filename,'w') as sampled_h5f:
             sampled_sh5f = Sorted_H5f(sampled_h5f,sampled_filename)
             sampled_sh5f.copy_root_summaryinfo_from_another(self.sorted_h5f,'sub')
+            self.set_root_attr('sample_num',sample_num)
+            self.set_root_attr('sample_method',sample_method)
             for i, k_str in enumerate( self.sorted_h5f ):
                 dset_k = self.sorted_h5f[k_str]
                 if dset_k.shape[0] < sample_num*0.3:
@@ -627,12 +634,13 @@ class Sorted_H5f():
             if gen_norm:
                 sampled_sh5f.file_normalization()
 
-    def normalize_dset(self,raw_dset_k,block_k_str):
+    def normalize_dset(self,block_k_str):
         '''
         (1) xyz/max
         (2) xy-min-block_size/2  (only xy)
         color / 255
         '''
+        raw_dset_k = self.sorted_h5f[block_k_str]
         batch_zero_flag = 'local'
         color_norm = raw_dset_k[:,self.raw_color_indx] / 255.0
         if batch_zero_flag == 'global':
@@ -640,6 +648,8 @@ class Sorted_H5f():
         else:
             batch_zero = raw_dset_k.attrs['xyz_min']
         xyz = raw_dset_k[:,self.raw_xyz_index] - batch_zero
+        label = raw_dset_k[:,self.raw_label_index]
+
         xyz_max = xyz.max(axis=0)
         xyz_min = xyz.min(axis=0)
         block_mid = (raw_dset_k.attrs['xyz_min'] + raw_dset_k.attrs['xyz_max'] ) / 2
@@ -648,24 +658,70 @@ class Sorted_H5f():
         xyz_norm2[:,0:2] -= (xyz_min[0:2] + block_mid[0:2])
 
         data_norm = np.hstack( (xyz_norm1,xyz_norm2,color_norm) )
-        dset_norm = self.get_blocked_dset(block_k_str,new_set_default_rows=data_norm.shape[0],column_N=9)
-        dset_norm[:,:] = data_norm
 
         #print('raw: \n',raw_dset_k[0,:])
         #print('norm:\n',dset_norm[0,:])
+        return data_norm,label
+
+    def get_sample_shape(self):
+            for i,k_str in  enumerate(self.sorted_h5f):
+                dset = self.sorted_h5f[k_str]
+                return dset.shape
 
     def file_normalization(self):
         parts = os.path.splitext(self.file_name)
         normalized_filename =  parts[0]+'_norm'+parts[1]
         print('stat gen normalized file: ',normalized_filename)
-        with h5py.File(normalized_filename,'w') as norm_f:
-            norm_sh5f = Sorted_H5f(norm_f,normalized_filename)
-            norm_sh5f.copy_root_summaryinfo_from_another(self.sorted_h5f,'all')
-            norm_sh5f.set_root_attr('elements', self.norm_elements)
-            for i,k_str in  enumerate(self.sorted_h5f):
-                raw_dset_k = self.sorted_h5f[k_str]
-                norm_sh5f.normalize_dset(raw_dset_k,k_str)
+        with h5py.File(normalized_filename,'w') as h5f:
+            normed_h5f = Normed_H5f(h5f,normalized_filename)
+            sample_point_n = self.get_sample_shape()[0]
+            normed_h5f.create_dsets(self.total_block_N,sample_point_n)
 
+            for i,k_str in  enumerate(self.sorted_h5f):
+                normed_data_i,normed_label_i = self.normalize_dset(k_str)
+                #normed_h5f.append_to_dset('data',normed_data_i)
+                normed_h5f.append_to_dset('label',normed_label_i)
+            normed_h5f.rm_invalid_data()
+
+
+class Normed_H5f():
+    norm_data_elements = 'xyz_norm1-xyz_norm2-color_norm'
+    def __init__(self,h5f,file_name):
+        self.h5f = h5f
+        self.file_name = file_name
+
+    def create_dsets(self,total_block_N,sample_num):
+        chunks_n = 10
+        data_set = self.h5f.create_dataset( 'data',shape=(total_block_N,sample_num,9),\
+                maxshape=(None,sample_num,9),dtype=np.float32,compression="gzip",\
+                chunks = (chunks_n,sample_num,9)  )
+        label_set = self.h5f.create_dataset( 'label',shape=(total_block_N,sample_num,1),\
+                maxshape=(None,sample_num,1),dtype=np.int16,compression="gzip",\
+                chunks = (chunks_n,sample_num,1)  )
+        data_set.attrs['elements'] = self.norm_data_elements
+        data_set.attrs['valid_num'] = 0
+        label_set.attrs['valid_num'] = 0
+        self.data_set = data_set
+        self.label_set  =label_set
+
+    def append_to_dset(self,dset_name,data_i,vacant_size=0):
+        dset = self.h5f[dset_name]
+        assert(dset.shape[1] == data_i.shape[0]), "in Normed_H5f.append_to_dset: data shape not match dataset"
+        assert(dset.shape[2] == data_i.shape[1]), "in Normed_H5f.append_to_dset: data shape not match dataset"
+        valid_num = dset.attrs['valid_num']
+        new_valid_num = valid_num + 1
+        if new_valid_num > dset.shape[0]:
+            dset.resize( (new_valid_num + vacant_size,)+dset.shape[1:] )
+        dset[valid_num : new_valid_num,:,:] = data_i
+        dset.attrs['valid_num'] = new_valid_num
+
+    def rm_invalid_data(self):
+        for dset_name_i in self.h5f:
+            dset_i = self.h5f[dset_name_i]
+            valid_n = dset_i.attrs['valid_num']
+            if dset_i.shape[0] > valid_n:
+                #print('resizing block %s from %d to %d'%(dset_name_i,dset_i.shape[0],valid_n))
+                dset_i.resize( (valid_n,)+dset_i.shape[1:] )
 
 #-------------------------------------------------------------------------------
 
@@ -1238,6 +1294,15 @@ def Do_gen_sorted_block_obj():
             sorted_h5f.generate_blocks_to_object()
 
 
+def gen_file_list(folder,format='h5'):
+    file_list = glob.glob( os.path.join(folder,'*.'+format) )
+    print(file_list)
+    with open(os.path.join(folder,'all_files.txt'),'w') as f:
+        for fn in file_list:
+            f.write( os.path.basename(fn) )
+    print('all file list file write OK ')
+
+
 def main(file_list):
 
     outdoor_prep = OUTDOOR_DATA_PREP()
@@ -1254,7 +1319,7 @@ def main(file_list):
 if __name__ == '__main__':
     #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_4_step_8, \
                 #'bildstein_station5_sub_m80_m5_stride_4_step_8_100_random_4096.h5') )
-    file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1, \
+    file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_4_step_8, \
                 '*_4096.h5') )
     #main(file_list)
     #Do_gen_raw_obj()
@@ -1264,5 +1329,6 @@ if __name__ == '__main__':
     #Do_sample()
     #Do_gen_sorted_block_obj()
     Do_Norm(file_list)
+    #gen_file_list(GLOBAL_PARA.ETH_final_path)
     T = time.time() - START_T
     print('exit main, T = ',T)
