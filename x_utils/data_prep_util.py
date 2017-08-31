@@ -237,15 +237,6 @@ def WriteFileList(folder_path,format,out_file_name,prefix):
 '''
     ETH Semantic3D data preparation
 '''
-def remove_intensity(in_filename,out_filename):
-    '''
-    in_filename: x y z intensity r g b
-    out_filename: x y z r g b
-    '''
-    Data_In = np.loadtxt(in_filename)
-    if not Data_In.shape[1] == 7:
-        print('data shape wrong: ',Data_In.shape)
-    Data_out = Data_In[:,0:3]
 
 def count_array(array,target):
     count = array == target

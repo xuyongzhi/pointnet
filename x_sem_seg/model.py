@@ -9,9 +9,9 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import tf_util
 
-def placeholder_inputs(batch_size, num_point):
+def placeholder_inputs(batch_size, num_point,num_channels=9):
     pointclouds_pl = tf.placeholder(tf.float32,
-                                     shape=(batch_size, num_point, 9))
+                                     shape=(batch_size, num_point, num_channels))
     labels_pl = tf.placeholder(tf.int32,
                                 shape=(batch_size, num_point))
     return pointclouds_pl, labels_pl
@@ -24,7 +24,8 @@ def get_model(point_cloud, is_training, bn_decay=None):
     input_image = tf.expand_dims(point_cloud, -1)
     # CONV
     # [b,4096,1,63]
-    net = tf_util.conv2d(input_image, 63, [1,9], padding='VALID', stride=[1,1],
+    in_channels_num = input_image.get_shape()[2].value
+    net = tf_util.conv2d(input_image, 63, [1,in_channels_num], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv1', bn_decay=bn_decay)
     # [b,4096,1,64]
     net = tf_util.conv2d(net, 64, [1,1], padding='VALID', stride=[1,1],

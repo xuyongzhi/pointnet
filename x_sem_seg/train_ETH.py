@@ -9,6 +9,8 @@ import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
+UPER_DIR = os.path.dirname(ROOT_DIR)
+#ETH_DATASET_DIR = os.path.join(UPER_DIR,'Dataset/ETH_Semantic3D_Dataset')
 sys.path.append(BASE_DIR)
 sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'x_utils'))
@@ -27,7 +29,9 @@ parser.add_argument('--momentum', type=float, default=0.9, help='Initial learnin
 parser.add_argument('--optimizer', default='adam', help='adam or momentum [default: adam]')
 parser.add_argument('--decay_step', type=int, default=300000, help='Decay step for lr decay [default: 300000]')
 parser.add_argument('--decay_rate', type=float, default=0.5, help='Decay rate for lr decay [default: 0.5]')
-parser.add_argument('--test_area', type=int, default=6, help='Which area to use for test, option: 1-6 [default: 6]')
+parser.add_argument('--no_color_1norm',action='store_true',help='set true when do trian with color_1norm ')
+parser.add_argument('--no_intensity_1norm',action='store_true',help='set true when do trian with intensity_1norm ')
+#parser.add_argument('--test_area', type=int, default=6, help='Which area to use for test, option: 1-6 [default: 6]')
 FLAGS = parser.parse_args()
 
 FLAGS.small_scale_data = True
@@ -60,7 +64,9 @@ BN_DECAY_CLIP = 0.99
 
 HOSTNAME = socket.gethostname()
 
-ALL_FILES = provider.getDataFiles('ETH3D_sem_seg_hdf5_data/all_files.txt')
+ALL_FILES = provider.getDataFiles(os.path.join('ETH3D_sem_seg_hdf5_data/all_files.txt') )
+
+
 
 # Load ALL data
 data_batch_list = []
@@ -75,28 +81,47 @@ for i,h5_filename in enumerate(ALL_FILES):
 data_batches = np.concatenate(data_batch_list, 0)
 label_batches = np.concatenate(label_batch_list, 0)
 
-test_area = 'Area_'+str(FLAGS.test_area)
+def log_string(out_str):
+    LOG_FOUT.write(out_str+'\n')
+    LOG_FOUT.flush()
+    print(out_str)
+
+
+#test_area = 'Area_'+str(FLAGS.test_area)
 train_idxs = []
 test_idxs = []
 if FLAGS.small_scale_data:
     print('in small scale data condition')
-    n_train = int(data_batches.shape[0] * 0.8)
+    n_train = int(data_batches.shape[0] * 0.85)
     train_idxs = range(0,n_train)
     test_idxs = range(n_train,data_batches.shape[0])
 
+# extract the data types to be trained
+# xyz_1norm xyz_midnorm color_1norm intensity_1norm
+COLOR_IDXS = range(6,9)
+INTENSITY_IDX = 9
+if FLAGS.no_color_1norm:
+    data_batches = np.delete(data_batches,COLOR_IDXS,2)
+if data_batches.shape[2]==10 and FLAGS.no_intensity_1norm:
+    data_batches = np.delete(data_batches,INTENSITY_IDX,2)
+NUM_CHANNELS = data_batches.shape[2]
+
+# randomly sample the points within one batch if not what all
+num_point_in = data_batches.shape[1]
+if NUM_POINT < num_point_in:
+    log_string('sample data batches from %d to %d points'%(num_point_in,NUM_POINT))
+    sample_choice = provider.sample(num_point_in,NUM_POINT)
+    data_batches = data_batches[:,sample_choice,:]
+    label_batches = label_batches[:,sample_choice]
 
 train_data = data_batches[train_idxs,...]
 train_label = label_batches[train_idxs]
 test_data = data_batches[test_idxs,...]
 test_label = label_batches[test_idxs]
 
-print('train data shape: ',train_data.shape)
-print('test data shape: ',test_data.shape)
+log_string('train data shape: %s'%(str(train_data.shape)) )
+log_string('test data shape: %s\n'%(str(test_data.shape)) )
 
-def log_string(out_str):
-    LOG_FOUT.write(out_str+'\n')
-    LOG_FOUT.flush()
-    print(out_str)
 
 
 def get_learning_rate(batch):
@@ -122,7 +147,7 @@ def get_bn_decay(batch):
 def train():
     with tf.Graph().as_default():
         with tf.device('/gpu:'+str(GPU_INDEX)):
-            pointclouds_pl, labels_pl = placeholder_inputs(BATCH_SIZE, NUM_POINT)
+            pointclouds_pl, labels_pl = placeholder_inputs(BATCH_SIZE, NUM_POINT,NUM_CHANNELS)
             is_training_pl = tf.placeholder(tf.bool, shape=())
 
             # Note the global_step=batch parameter to minimize.
@@ -208,8 +233,8 @@ def train_one_epoch(sess, ops, train_writer,epoch):
 
     print('total batch num = ',num_batches)
     def log_train():
-        log_string('epoch %d batch %d    train mean loss: %f' % (epoch,batch_idx,loss_sum / float(num_batches)))
-        log_string('epoch %d batch %d    train accuracy: %f' % (epoch,batch_idx,total_correct / float(total_seen)))
+        log_string('epoch %d batch %d \ttrain \tmean loss: %f   \taccuracy: %f' % \
+                   (epoch,batch_idx,loss_sum / float(num_batches),total_correct / float(total_seen)  ))
 
     for batch_idx in range(num_batches):
         #if batch_idx % 100 == 0:

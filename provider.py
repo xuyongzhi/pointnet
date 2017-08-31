@@ -17,7 +17,7 @@ if not os.path.exists(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048')):
     os.system('rm %s' % (zipfile))
 
 
-def shuffle_data(data, labels):
+def shuffle_data(data, labels, NUM_POINT=None):
     """ Shuffle data and labels.
         Input:
           data: B,N,... numpy array
@@ -27,8 +27,26 @@ def shuffle_data(data, labels):
     """
     idx = np.arange(len(labels))
     np.random.shuffle(idx)
+    #if NUM_POINT != None and NUM_POINT != data.shape[1]:
+    #    sample_choice = sample(data.shape[1],NUM_POINT)
+    #    data = data[:,sample_choice,:]
+    #    labels = labels[:,sample_choice]
     return data[idx, ...], labels[idx], idx
 
+def sample(org_N,sample_N,sample_method='random'):
+    if sample_method == 'random':
+        if org_N == sample_N:
+            sample_choice = np.arange(sample_N)
+        elif org_N > sample_N:
+            sample_choice = np.random.choice(org_N,sample_N)
+            #reduced_num += org_N - sample_N
+        else:
+            #sample_choice = np.arange(org_N)
+            new_samp = np.random.choice(org_N,sample_N-org_N)
+            sample_choice = np.concatenate( (np.arange(org_N),new_samp) )
+        #str = '%d -> %d  %d%%'%(org_N,sample_N,100.0*sample_N/org_N)
+        #print(str)
+    return sample_choice
 
 def rotate_point_cloud(batch_data):
     """ Randomly rotate the point clouds to augument the dataset
@@ -49,6 +67,7 @@ def rotate_point_cloud(batch_data):
         shape_pc = batch_data[k, ...]
         rotated_data[k, ...] = np.dot(shape_pc.reshape((-1, 3)), rotation_matrix)
     return rotated_data
+
 
 
 def rotate_point_cloud_by_angle(batch_data, rotation_angle):
@@ -88,7 +107,7 @@ def getDataFiles(list_filename):
     return [line.rstrip() for line in open(list_filename)]
 
 def load_h5(h5_filename):
-    f = h5py.File(h5_filename)
+    f = h5py.File(h5_filename,'r')
     data = f['data'][:]
     label = f['label'][:]
     return (data, label)

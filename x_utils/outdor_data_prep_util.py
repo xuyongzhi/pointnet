@@ -591,7 +591,7 @@ class Sorted_H5f():
                     sub_f.append_to_dset(dset_name_i,self.sorted_h5f[dset_name_i])
             sub_f.add_total_row_block_N()
 
-    def sample(self,org_N,sample_N,sample_method):
+    def sample(self,org_N,sample_N,sample_method='random'):
         if sample_method == 'random':
             if org_N == sample_N:
                 sample_choice = np.arange(sample_N)
@@ -649,6 +649,7 @@ class Sorted_H5f():
             batch_zero = raw_dset_k.attrs['xyz_min']
         xyz = raw_dset_k[:,self.raw_xyz_index] - batch_zero
         label = raw_dset_k[:,self.raw_label_index]
+        label = np.squeeze(label,-1)
 
         xyz_max = xyz.max(axis=0)
         xyz_min = xyz.min(axis=0)
@@ -679,9 +680,10 @@ class Sorted_H5f():
 
             for i,k_str in  enumerate(self.sorted_h5f):
                 normed_data_i,normed_label_i = self.normalize_dset(k_str)
-                #normed_h5f.append_to_dset('data',normed_data_i)
+                normed_h5f.append_to_dset('data',normed_data_i)
                 normed_h5f.append_to_dset('label',normed_label_i)
             normed_h5f.rm_invalid_data()
+            print('normalization finished: %d rows'%(i+1))
 
 
 class Normed_H5f():
@@ -695,9 +697,9 @@ class Normed_H5f():
         data_set = self.h5f.create_dataset( 'data',shape=(total_block_N,sample_num,9),\
                 maxshape=(None,sample_num,9),dtype=np.float32,compression="gzip",\
                 chunks = (chunks_n,sample_num,9)  )
-        label_set = self.h5f.create_dataset( 'label',shape=(total_block_N,sample_num,1),\
-                maxshape=(None,sample_num,1),dtype=np.int16,compression="gzip",\
-                chunks = (chunks_n,sample_num,1)  )
+        label_set = self.h5f.create_dataset( 'label',shape=(total_block_N,sample_num),\
+                maxshape=(None,sample_num),dtype=np.int16,compression="gzip",\
+                chunks = (chunks_n,sample_num)  )
         data_set.attrs['elements'] = self.norm_data_elements
         data_set.attrs['valid_num'] = 0
         label_set.attrs['valid_num'] = 0
@@ -706,13 +708,14 @@ class Normed_H5f():
 
     def append_to_dset(self,dset_name,data_i,vacant_size=0):
         dset = self.h5f[dset_name]
-        assert(dset.shape[1] == data_i.shape[0]), "in Normed_H5f.append_to_dset: data shape not match dataset"
-        assert(dset.shape[2] == data_i.shape[1]), "in Normed_H5f.append_to_dset: data shape not match dataset"
+        assert(dset.ndim == data_i.ndim+1), "in Normed_H5f.append_to_dset: data shape not match dataset"
+        for i in range(1,dset.ndim):
+            assert(dset.shape[i] == data_i.shape[i-1]), "in Normed_H5f.append_to_dset: data shape not match dataset"
         valid_num = dset.attrs['valid_num']
         new_valid_num = valid_num + 1
         if new_valid_num > dset.shape[0]:
             dset.resize( (new_valid_num + vacant_size,)+dset.shape[1:] )
-        dset[valid_num : new_valid_num,:,:] = data_i
+        dset[valid_num : new_valid_num,...] = data_i
         dset.attrs['valid_num'] = new_valid_num
 
     def rm_invalid_data(self):
@@ -1299,7 +1302,11 @@ def gen_file_list(folder,format='h5'):
     print(file_list)
     with open(os.path.join(folder,'all_files.txt'),'w') as f:
         for fn in file_list:
-            f.write( os.path.basename(fn) )
+            base_filename = os.path.basename(fn)
+            base_dirname = os.path.basename( os.path.dirname(fn) )
+            base_dir_file_name = os.path.join(base_dirname,base_filename)
+            f.write( base_dir_file_name )
+            print(base_dir_file_name)
     print('all file list file write OK ')
 
 
