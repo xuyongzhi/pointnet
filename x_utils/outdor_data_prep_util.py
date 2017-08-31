@@ -642,7 +642,7 @@ class Sorted_H5f():
         '''
         raw_dset_k = self.sorted_h5f[block_k_str]
         batch_zero_flag = 'local'
-        color_norm = raw_dset_k[:,self.raw_color_indx] / 255.0
+        color_1norm = raw_dset_k[:,self.raw_color_indx] / 255.0
         if batch_zero_flag == 'global':
             batch_zero = self.xyz_min_aligned
         else:
@@ -650,15 +650,18 @@ class Sorted_H5f():
         xyz = raw_dset_k[:,self.raw_xyz_index] - batch_zero
         label = raw_dset_k[:,self.raw_label_index]
         label = np.squeeze(label,-1)
+        intensity = raw_dset_k[:,self.raw_intensity_index]
 
         xyz_max = xyz.max(axis=0)
         xyz_min = xyz.min(axis=0)
         block_mid = (raw_dset_k.attrs['xyz_min'] + raw_dset_k.attrs['xyz_max'] ) / 2
-        xyz_norm1 = xyz / xyz_max
-        xyz_norm2 = xyz
-        xyz_norm2[:,0:2] -= (xyz_min[0:2] + block_mid[0:2])
+        xyz_1norm = xyz / xyz_max
+        xyz_midnorm = xyz
+        xyz_midnorm[:,0:2] -= (xyz_min[0:2] + block_mid[0:2])
 
-        data_norm = np.hstack( (xyz_norm1,xyz_norm2,color_norm) )
+        intensity_1norm = (intensity+2000)/2000
+
+        data_norm = np.hstack( (xyz_1norm,xyz_midnorm,color_1norm,intensity_1norm) )
 
         #print('raw: \n',raw_dset_k[0,:])
         #print('norm:\n',dset_norm[0,:])
@@ -687,20 +690,25 @@ class Sorted_H5f():
 
 
 class Normed_H5f():
-    norm_data_elements = 'xyz_norm1-xyz_norm2-color_norm'
+    data_elements = ['xyz_1norm','xyz_midnorm','color_1norm','intensity_1norm']
+    elements_idxs = {data_elements[0]:range(0,3),data_elements[1]:range(3,6),\
+                     data_elements[2]:range(6,9),data_elements[3]:range(9,10)}
     def __init__(self,h5f,file_name):
         self.h5f = h5f
         self.file_name = file_name
 
     def create_dsets(self,total_block_N,sample_num):
-        chunks_n = 10
-        data_set = self.h5f.create_dataset( 'data',shape=(total_block_N,sample_num,9),\
-                maxshape=(None,sample_num,9),dtype=np.float32,compression="gzip",\
-                chunks = (chunks_n,sample_num,9)  )
+        chunks_n = 8
+        num_channels  =10
+        data_set = self.h5f.create_dataset( 'data',shape=(total_block_N,sample_num,num_channels),\
+                maxshape=(None,sample_num,num_channels),dtype=np.float32,compression="gzip",\
+                chunks = (chunks_n,sample_num,num_channels)  )
         label_set = self.h5f.create_dataset( 'label',shape=(total_block_N,sample_num),\
                 maxshape=(None,sample_num),dtype=np.int16,compression="gzip",\
                 chunks = (chunks_n,sample_num)  )
-        data_set.attrs['elements'] = self.norm_data_elements
+        data_set.attrs['elements'] = self.data_elements
+        for ele in self.data_elements:
+            data_set.attrs[ele] = self.elements_idxs[ele]
         data_set.attrs['valid_num'] = 0
         label_set.attrs['valid_num'] = 0
         self.data_set = data_set
@@ -1335,7 +1343,7 @@ if __name__ == '__main__':
     #Test_sub_block_ks()
     #Do_sample()
     #Do_gen_sorted_block_obj()
-    Do_Norm(file_list)
-    #gen_file_list(GLOBAL_PARA.ETH_final_path)
+    #Do_Norm(file_list)
+    gen_file_list(GLOBAL_PARA.ETH_final_path)
     T = time.time() - START_T
     print('exit main, T = ',T)
