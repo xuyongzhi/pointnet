@@ -81,7 +81,26 @@ ALL_FILES = provider.getDataFiles(os.path.join('ETH3D_sem_seg_hdf5_data/all_file
 
 
 # Load ALL data
-net_provider = Net_Provider(ALL_FILES,NUM_POINT,FLAGS.only_evaluate,FLAGS.no_color_1norm,FLAGS.no_intensity_1norm)
+all_files_f = os.path.join('ETH3D_sem_seg_hdf5_data/all_files.txt')
+ALL_FILES = [line.rstrip() for line in open(all_files_f)]
+if not FLAGS.only_evaluate:
+    train_file_list = ALL_FILES[0:1]
+    eval_file_list = ALL_FILES[-1:]
+    train_num_block_rate = 0.8
+    eval_num_block_rate = 0.2
+else:
+    train_file_list = []
+    eval_file_list = ALL_FILES
+    train_num_block_rate = 0
+    eval_num_block_rate = 1
+
+net_provider = Net_Provider( train_file_list,eval_file_list,NUM_POINT,\
+                            only_evaluate = FLAGS.only_evaluate,\
+                            no_color_1norm = FLAGS.no_color_1norm,\
+                            no_intensity_1norm = FLAGS.no_intensity_1norm,\
+                            train_num_block_rate = train_num_block_rate,\
+                            eval_num_block_rate = eval_num_block_rate)
+NUM_CHANNELS = net_provider.num_channels
 
     #data_batch_list = []
     #label_batch_list = []
@@ -118,7 +137,6 @@ def log_string(out_str):
     #if FLAGS.no_intensity_1norm:
     #    delete_idxs += INTENSITY_IDX
     #data_batches = np.delete(data_batches,delete_idxs,2)
-NUM_CHANNELS = net_provider.num_channels
 
     ## randomly sample the points within one batch if not what all
     #num_point_in = data_batches.shape[1]
@@ -218,8 +236,8 @@ def train():
                'merged': merged,
                'step': batch}
 
-        log_string('\ntrain data shape: %s'%(str(train_data.shape)) )
-        log_string('test data shape: %s\n'%(str(test_data.shape)) )
+        log_string('\ntrain data shape: %s'%(str(net_provider.train_data_shape)) )
+        log_string('test data shape: %s\n'%(str(net_provider.eval_data_shape)) )
 
         for epoch in range(MAX_EPOCH):
             log_string('**** EPOCH %03d ****' % (epoch))
@@ -244,11 +262,11 @@ def train_one_epoch(sess, ops, train_writer,epoch):
     is_training = True
 
     log_string('----')
-    current_data, current_label, _ = provider.shuffle_data(train_data[:,0:NUM_POINT,:], train_label[:,0:NUM_POINT])
+    #current_data, current_label, _ = provider.shuffle_data(train_data[:,0:NUM_POINT,:], train_label[:,0:NUM_POINT])
 
     train_num_blocks = net_provider.train_num_blocks
-    #num_batches = file_size // BATCH_SIZE
-    num_batches = ceil(1.0*train_num_blocks/BATCH_SIZE)
+    num_batches = train_num_blocks // BATCH_SIZE
+    #num_batches = int(math.ceil(1.0*train_num_blocks/BATCH_SIZE))
 
     total_correct = 0
     total_seen = 0
@@ -275,7 +293,7 @@ def train_one_epoch(sess, ops, train_writer,epoch):
                                          feed_dict=feed_dict)
         train_writer.add_summary(summary, step)
         pred_val = np.argmax(pred_val, 2)
-        correct = np.sum(pred_val == current_label[start_idx:end_idx])
+        correct = np.sum(pred_val == batch_label)
         total_correct += correct
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum += loss_val
@@ -298,11 +316,20 @@ def eval_one_epoch(sess, ops, test_writer):
     log_string('----')
 
     eval_num_blocks = net_provider.eval_num_blocks
-    num_batches = ceil( 1.0 * eval_num_blocks / BATCH_SIZE )
+    #num_batches = int(math.ceil( 1.0 * eval_num_blocks / BATCH_SIZE ))
+    num_batches = eval_num_blocks // BATCH_SIZE
+
+
+    def log_eval():
+        log_string('\neval \tmean loss: %f  \taccuracy: %f' % (loss_sum / float(total_seen/NUM_POINT),\
+                    total_correct / float(total_seen) ))
+        class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
+        log_string('eval class accuracies: %s' % (np.array_str(class_accuracies)))
+        log_string('eval avg class acc: %f' % (np.mean(class_accuracies)))
 
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
-        end_idx = min( (batch_idx+1) * BATCH_SIZE, file_size )
+        end_idx = min( (batch_idx+1) * BATCH_SIZE, eval_num_blocks )
 
         batch_data,batch_label = net_provider.get_eval_batch(start_idx,end_idx)
         feed_dict = {ops['pointclouds_pl']: batch_data,
@@ -313,22 +340,19 @@ def eval_one_epoch(sess, ops, test_writer):
         if test_writer != None:
             test_writer.add_summary(summary, step)
         pred_val = np.argmax(pred_val, 2)
-        correct = np.sum(pred_val == current_label[start_idx:end_idx])
+        correct = np.sum(pred_val == batch_label[start_idx:end_idx])
         total_correct += correct
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum += (loss_val*BATCH_SIZE)
-        import pdb; pdb.set_trace()  # XXX BREAKPOINT
-        for i in range(start_idx, end_idx):
+        for i in range(0,batch_label.shape[0]):
             for j in range(NUM_POINT):
-                l = current_label[i, j]
+                l = batch_label[i, j]
                 total_seen_class[l] += 1
-                total_correct_class[l] += (pred_val[i-start_idx, j] == l)
+                total_correct_class[l] += (pred_val[i, j] == l)
 
-    log_string('eval mean loss: %f' % (loss_sum / float(total_seen/NUM_POINT)))
-    log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
-    class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
-    log_string('eval class accuracies: %s' % (np.array_str(class_accuracies)))
-    log_string('eval avg class acc: %f' % (np.mean(class_accuracies)))
+        if  batch_idx%1==0:
+            log_eval()
+    log_eval()
 
 
 

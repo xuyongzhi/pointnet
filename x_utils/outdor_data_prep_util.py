@@ -746,7 +746,7 @@ class Normed_H5f():
         self.dataset_names = ['data','label','raw_xyz','pred_label']
         for dn in self.dataset_names:
             if dn in h5f:
-                setattr(self,dn+'_set') = h5f[dn]
+                setattr(self,dn+'_set', h5f[dn])
 
     def create_dsets(self,total_block_N,sample_num):
         chunks_n = 8
@@ -807,7 +807,8 @@ class Net_Provider():
     # one batch would contain sevel(batch_size) blocks,this will be set out side
     # provider with train_start_idx and test_start_idx
     def __init__(self,train_file_list,eval_file_list,NUM_POINT_OUT,only_evaluate,\
-                 no_color_1norm,no_intensity_1norm):
+                 no_color_1norm,no_intensity_1norm,\
+                 train_num_block_rate=1,eval_num_block_rate=1 ):
         self.no_color_1norm = no_color_1norm
         self.no_intensity_1norm = no_intensity_1norm
         self.NUM_POINT_OUT = NUM_POINT_OUT
@@ -825,7 +826,7 @@ class Net_Provider():
         # record the start/end row idx  of each file to help search data from
         # all files
         # [start_global_row_idxs,end_global__idxs]
-        self.g_block_idxs = np.zeros((file_N,2))
+        self.g_block_idxs = np.zeros((self.g_file_N,2),np.int32)
         self.eval_global_start_idx = None
         for i,fn in enumerate(normed_h5f_file_list):
             assert(os.path.exists(fn))
@@ -833,13 +834,33 @@ class Net_Provider():
             norm_h5f = Normed_H5f(h5f,fn)
             self.norm_h5f_L.append( norm_h5f )
             self.g_block_idxs[i,1] = self.g_block_idxs[i,0] + norm_h5f.data_set.shape[0]
-            if i<file_N-1:
+            if i<self.g_file_N-1:
                 self.g_block_idxs[i+1,0] = self.g_block_idxs[i,1]
 
         self.eval_global_start_idx = self.g_block_idxs[train_file_N,0]
-        self.num_channels = self.norm_h5f_L[0].data_set.shape[2]
-        self.train_num_blocks = self.g_block_idxs[train_file_N-1,1]
+        if train_file_N > 0:
+            self.train_num_blocks = self.g_block_idxs[train_file_N-1,1]
+        else: self.train_num_blocks = 0
         self.eval_num_blocks = self.g_block_idxs[-1,1] - self.train_num_blocks
+
+        # use only part of the data to test code:
+        # train: use the front part
+        self.train_num_blocks = int( self.train_num_blocks * train_num_block_rate)
+        new_eval_num_blocks = int( self.eval_num_blocks * eval_num_block_rate)
+        # eval:use the back part, so train_file_list and eval_file_list can be
+        # the same
+        self.eval_global_start_idx += self.eval_num_blocks - new_eval_num_blocks
+        self.eval_num_blocks = new_eval_num_blocks
+
+        self.get_data_label_shape()
+
+    def get_data_label_shape(self):
+        data_batches,label_batches = self.get_train_batch(0,1)
+        self.train_data_shape = list(data_batches.shape)
+        self.train_data_shape[0] = self.train_num_blocks
+        self.num_channels = self.train_data_shape[2]
+        self.eval_data_shape = list(label_batches.shape)
+        self.eval_data_shape[0] = self.eval_num_blocks
 
     def __exit__(self):
         print('exit Net_Provider')
@@ -847,13 +868,13 @@ class Net_Provider():
             norm_h5f.h5f.close()
 
     def get_global_batch(self,g_start_idx,g_end_idx):
-        assert(g_start_idx>0 and g_start_idx<self.file_N)
-        assert(g_end_idx>0 and g_end_idx<self.file_N)
+        assert(g_start_idx>=0 and g_start_idx<=self.g_block_idxs[-1,1])
+        assert(g_end_idx>=0 and g_end_idx<=self.g_block_idxs[-1,1])
         for i in range(self.g_file_N):
             if g_start_idx >= self.g_block_idxs[i,0] and g_start_idx < self.g_block_idxs[i,1]:
                 start_file_idx = i
                 local_start_idx = g_start_idx - self.g_block_idxs[i,0]
-                for j in range(i,self.file_N):
+                for j in range(i,self.g_file_N):
                     if g_end_idx > self.g_block_idxs[j,0] and g_end_idx <= self.g_block_idxs[j,1]:
                         end_file_idx = j
                         local_end_idx = g_end_idx - self.g_block_idxs[j,0]
@@ -863,9 +884,9 @@ class Net_Provider():
             if f_idx == start_file_idx:
                 end = local_end_idx
             else:
-                end = self.norm_h5f_L[f_idx]['label'].shape[0]
-            data_i = self.norm_h5f_L[f_idx]['data'][local_start_idx:end,...]
-            label_i = self.norm_h5f_L[f_idx]['label'][local_start_idx:end,...]
+                end = self.norm_h5f_L[f_idx].label_set.shape[0]
+            data_i = self.norm_h5f_L[f_idx].data_set[local_start_idx:end,:,:]
+            label_i = self.norm_h5f_L[f_idx].label_set[local_start_idx:end,:]
             data_ls.append(data_i)
             label_ls.append(label_i)
         data_batches = np.concatenate(data_ls,0)
@@ -894,6 +915,7 @@ class Net_Provider():
         if self.no_intensity_1norm:
             delete_idxs += INTENSITY_IDX
         data_batches = np.delete(data_batches,delete_idxs,2)
+        return data_batches
 
     def get_train_batch(self,train_start_batch_idx,train_end_batch_idx):
         # all train files are before eval files

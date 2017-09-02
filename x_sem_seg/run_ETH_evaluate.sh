@@ -2,7 +2,7 @@
 
 
 
-python train_out.py --only_evaluate --log_dir log_ETH_4096_6  --no_color_1norm --no_intensity_1norm
+python train_out.py --only_evaluate --log_dir log_ETH_4096_6 --batch_size 1   --no_color_1norm --no_intensity_1norm
 
 
 
