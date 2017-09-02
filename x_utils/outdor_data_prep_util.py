@@ -42,6 +42,21 @@ class GLOBAL_PARA():
     h5_chunk_row_step_1G = h5_chunk_row_step_1M * 1000
     h5_chunk_row_step =  h5_chunk_row_step_10M
 
+    @classmethod
+    def sample(cls,org_N,sample_N,sample_method='random'):
+        if sample_method == 'random':
+            if org_N == sample_N:
+                sample_choice = np.arange(sample_N)
+            elif org_N > sample_N:
+                sample_choice = np.random.choice(org_N,sample_N)
+                self.reduced_num += org_N - sample_N
+            else:
+                #sample_choice = np.arange(org_N)
+                new_samp = np.random.choice(org_N,sample_N-org_N)
+                sample_choice = np.concatenate( (np.arange(org_N),new_samp) )
+            #str = '%d -> %d  %d%%'%(org_N,sample_N,100.0*sample_N/org_N)
+            #print(str)
+        return sample_choice
 
 
 def rm_file_name_midpart(fn,rm_part):
@@ -647,7 +662,8 @@ class Sorted_H5f():
             batch_zero = self.xyz_min_aligned
         else:
             batch_zero = raw_dset_k.attrs['xyz_min']
-        xyz = raw_dset_k[:,self.raw_xyz_index] - batch_zero
+        raw_xyz = raw_dset_k[:,self.raw_xyz_index]
+        xyz = raw_xyz - batch_zero
         label = raw_dset_k[:,self.raw_label_index]
         label = np.squeeze(label,-1)
         intensity = raw_dset_k[:,self.raw_intensity_index]
@@ -665,7 +681,7 @@ class Sorted_H5f():
 
         #print('raw: \n',raw_dset_k[0,:])
         #print('norm:\n',dset_norm[0,:])
-        return data_norm,label
+        return data_norm,label,raw_xyz
 
     def get_sample_shape(self):
             for i,k_str in  enumerate(self.sorted_h5f):
@@ -682,20 +698,55 @@ class Sorted_H5f():
             normed_h5f.create_dsets(self.total_block_N,sample_point_n)
 
             for i,k_str in  enumerate(self.sorted_h5f):
-                normed_data_i,normed_label_i = self.normalize_dset(k_str)
+                normed_data_i,normed_label_i,raw_xyz_i = self.normalize_dset(k_str)
                 normed_h5f.append_to_dset('data',normed_data_i)
                 normed_h5f.append_to_dset('label',normed_label_i)
+                normed_h5f.append_to_dset('raw_xyz',raw_xyz_i)
             normed_h5f.rm_invalid_data()
             print('normalization finished: %d rows'%(i+1))
 
 
 class Normed_H5f():
+    # -----------------------------------------------------------------------------
+    # CONSTANTS
+    # -----------------------------------------------------------------------------
+    g_label2class = {0: 'unlabeled points', 1: 'man-made terrain', 2: 'natural terrain',\
+                     3: 'high vegetation', 4: 'low vegetation', 5: 'buildings', \
+                     6: 'hard scape', 7: 'scanning artefacts', 8: 'cars'}
+    g_label2color = {0:	[0,255,0],
+                     1:	[0,0,255],
+                     2:	[0,255,255],
+                     3: [255,255,0],
+                     4: [255,0,255],
+                     5: [100,100,255],
+                     6: [200,200,100],
+                     7: [170,120,200],
+                     8: [255,0,0]}
+                     #9: [200,100,100],
+                     #10:[10,200,100],
+                     #11:[200,200,200],
+                     #12:[50,50,50]}
+    g_class2label = {cls:label for label,cls in g_label2class.iteritems()}
+    g_class2color = {}
+    for i in g_label2class:
+        cls = g_label2class[i]
+        g_class2color[cls] = g_label2color[i]
+    NUM_CLASSES = len(g_label2class)
+    #g_easy_view_labels = [7,8,9,10,11,1]
+    #g_is_labeled = True
+
+    ## normed data channels
     data_elements = ['xyz_1norm','xyz_midnorm','color_1norm','intensity_1norm']
     elements_idxs = {data_elements[0]:range(0,3),data_elements[1]:range(3,6),\
                      data_elements[2]:range(6,9),data_elements[3]:range(9,10)}
     def __init__(self,h5f,file_name):
         self.h5f = h5f
         self.file_name = file_name
+
+        self.dataset_names = ['data','label','raw_xyz','pred_label']
+        for dn in self.dataset_names:
+            if dn in h5f:
+                setattr(self,dn+'_set') = h5f[dn]
 
     def create_dsets(self,total_block_N,sample_num):
         chunks_n = 8
@@ -706,11 +757,23 @@ class Normed_H5f():
         label_set = self.h5f.create_dataset( 'label',shape=(total_block_N,sample_num),\
                 maxshape=(None,sample_num),dtype=np.int16,compression="gzip",\
                 chunks = (chunks_n,sample_num)  )
+
+        # record the original xyz for gen obj
+        raw_xyz_set = self.h5f.create_dataset( 'raw_xyz',shape=(total_block_N,sample_num,3),\
+                maxshape=(None,sample_num,3),dtype=np.float32,compression="gzip",\
+                chunks = (chunks_n,sample_num,3)  )
+        # predicted label
+        pred_label_set = self.h5f.create_dataset( 'pred_label',shape=(total_block_N,sample_num),\
+                maxshape=(None,sample_num),dtype=np.int16,compression="gzip",\
+                chunks = (chunks_n,sample_num)  )
+
         data_set.attrs['elements'] = self.data_elements
         for ele in self.data_elements:
             data_set.attrs[ele] = self.elements_idxs[ele]
         data_set.attrs['valid_num'] = 0
         label_set.attrs['valid_num'] = 0
+        raw_xyz_set.attrs['valid_num'] = 0
+        pred_label_set.attrs['valid_num'] = 0
         self.data_set = data_set
         self.label_set  =label_set
 
@@ -734,8 +797,119 @@ class Normed_H5f():
                 #print('resizing block %s from %d to %d'%(dset_name_i,dset_i.shape[0],valid_n))
                 dset_i.resize( (valid_n,)+dset_i.shape[1:] )
 
+
+#-------------------------------------------------------------------------------
+# provider for training and testing
+#------------------------------------------------------------------------------
+class Net_Provider():
+    # input normalized h5f files
+    # normed_h5f['data']: [blocks*block_num_point*num_channel],like [1000*4096*9]
+    # one batch would contain sevel(batch_size) blocks,this will be set out side
+    # provider with train_start_idx and test_start_idx
+    def __init__(self,train_file_list,eval_file_list,NUM_POINT_OUT,only_evaluate,\
+                 no_color_1norm,no_intensity_1norm):
+        self.no_color_1norm = no_color_1norm
+        self.no_intensity_1norm = no_intensity_1norm
+        self.NUM_POINT_OUT = NUM_POINT_OUT
+        if only_evaluate:
+            open_type = 'a' # need to wrie pred labels
+        else:
+            open_type = 'r'
+        train_file_N = len(train_file_list)
+        eval_file_N = len(eval_file_list)
+        self.g_file_N = train_file_N + eval_file_N
+        normed_h5f_file_list = train_file_list + eval_file_list
+
+        self.norm_h5f_L = []
+        # global: within the whole train/test dataset  (several files)
+        # record the start/end row idx  of each file to help search data from
+        # all files
+        # [start_global_row_idxs,end_global__idxs]
+        self.g_block_idxs = np.zeros((file_N,2))
+        self.eval_global_start_idx = None
+        for i,fn in enumerate(normed_h5f_file_list):
+            assert(os.path.exists(fn))
+            h5f = h5py.File(fn,open_type)
+            norm_h5f = Normed_H5f(h5f,fn)
+            self.norm_h5f_L.append( norm_h5f )
+            self.g_block_idxs[i,1] = self.g_block_idxs[i,0] + norm_h5f.data_set.shape[0]
+            if i<file_N-1:
+                self.g_block_idxs[i+1,0] = self.g_block_idxs[i,1]
+
+        self.eval_global_start_idx = self.g_block_idxs[train_file_N,0]
+        self.num_channels = self.norm_h5f_L[0].data_set.shape[2]
+        self.train_num_blocks = self.g_block_idxs[train_file_N-1,1]
+        self.eval_num_blocks = self.g_block_idxs[-1,1] - self.train_num_blocks
+
+    def __exit__(self):
+        print('exit Net_Provider')
+        for norm_h5f in self.norm_h5f:
+            norm_h5f.h5f.close()
+
+    def get_global_batch(self,g_start_idx,g_end_idx):
+        assert(g_start_idx>0 and g_start_idx<self.file_N)
+        assert(g_end_idx>0 and g_end_idx<self.file_N)
+        for i in range(self.g_file_N):
+            if g_start_idx >= self.g_block_idxs[i,0] and g_start_idx < self.g_block_idxs[i,1]:
+                start_file_idx = i
+                local_start_idx = g_start_idx - self.g_block_idxs[i,0]
+                for j in range(i,self.file_N):
+                    if g_end_idx > self.g_block_idxs[j,0] and g_end_idx <= self.g_block_idxs[j,1]:
+                        end_file_idx = j
+                        local_end_idx = g_end_idx - self.g_block_idxs[j,0]
+        data_ls = []
+        label_ls = []
+        for f_idx in range(start_file_idx,end_file_idx+1):
+            if f_idx == start_file_idx:
+                end = local_end_idx
+            else:
+                end = self.norm_h5f_L[f_idx]['label'].shape[0]
+            data_i = self.norm_h5f_L[f_idx]['data'][local_start_idx:end,...]
+            label_i = self.norm_h5f_L[f_idx]['label'][local_start_idx:end,...]
+            data_ls.append(data_i)
+            label_ls.append(label_i)
+        data_batches = np.concatenate(data_ls,0)
+        data_batches = self.extract_channels(data_batches)
+        label_batches = np.concatenate(label_ls,0)
+        data_batches,label_batches = self.sample(data_batches,label_batches,self.NUM_POINT_OUT)
+
+        return data_batches,label_batches
+
+    def sample(self,data_batches,label_batches,NUM_POINT_OUT):
+        NUM_POINT_IN = data_batches.shape[1]
+        if NUM_POINT_IN != NUM_POINT_OUT:
+            sample_choice = GLOBAL_PARA.sample(NUM_POINT_IN,NUM_POINT_OUT,'random')
+            data_batches = data_batches[:,sample_choice,...]
+            label_batches = label_batches[:,sample_choice]
+        return data_batches,label_batches
+
+    def extract_channels(self,data_batches):
+        # extract the data types to be trained
+        # xyz_1norm xyz_midnorm color_1norm intensity_1norm
+        COLOR_IDXS = Normed_H5f.elements_idxs['color_1norm']
+        INTENSITY_IDX = Normed_H5f.elements_idxs['intensity_1norm']
+        delete_idxs = []
+        if self.no_color_1norm:
+            delete_idxs += COLOR_IDXS
+        if self.no_intensity_1norm:
+            delete_idxs += INTENSITY_IDX
+        data_batches = np.delete(data_batches,delete_idxs,2)
+
+    def get_train_batch(self,train_start_batch_idx,train_end_batch_idx):
+        # all train files are before eval files
+        g_start_batch_idx = train_start_batch_idx
+        g_end_batch_idx = train_end_batch_idx
+        return self.get_global_batch(g_start_batch_idx,g_end_batch_idx)
+
+    def get_eval_batch(self,eval_start_batch_idx,eval_end_batch_idx):
+        g_start_batch_idx = eval_start_batch_idx + self.eval_global_start_idx
+        g_end_batch_idx = eval_end_batch_idx + self.eval_global_start_idx
+        return self.get_global_batch(g_start_batch_idx,g_end_batch_idx)
+
+
 #-------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------
 class OUTDOOR_DATA_PREP():
 
     def __init__(self):
@@ -1343,7 +1517,7 @@ if __name__ == '__main__':
     #Test_sub_block_ks()
     #Do_sample()
     #Do_gen_sorted_block_obj()
-    #Do_Norm(file_list)
-    gen_file_list(GLOBAL_PARA.ETH_final_path)
+    Do_Norm(file_list)
+    #gen_file_list(GLOBAL_PARA.ETH_final_path)
     T = time.time() - START_T
     print('exit main, T = ',T)
