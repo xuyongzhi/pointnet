@@ -49,7 +49,7 @@ class GLOBAL_PARA():
                 sample_choice = np.arange(sample_N)
             elif org_N > sample_N:
                 sample_choice = np.random.choice(org_N,sample_N)
-                self.reduced_num += org_N - sample_N
+                #reduced_num += org_N - sample_N
             else:
                 #sample_choice = np.arange(org_N)
                 new_samp = np.random.choice(org_N,sample_N-org_N)

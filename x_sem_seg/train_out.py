@@ -324,8 +324,8 @@ def eval_one_epoch(sess, ops, test_writer):
         log_string('\neval \tmean loss: %f  \taccuracy: %f' % (loss_sum / float(total_seen/NUM_POINT),\
                     total_correct / float(total_seen) ))
         class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
-        log_string('eval class accuracies: %s' % (np.array_str(class_accuracies)))
-        log_string('eval avg class acc: %f' % (np.mean(class_accuracies)))
+        log_string('eval class accuracies: %s' % (np.array2string(class_accuracies,formatter={'float':lambda x: "%f"%x})))
+
 
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
@@ -340,7 +340,9 @@ def eval_one_epoch(sess, ops, test_writer):
         if test_writer != None:
             test_writer.add_summary(summary, step)
         pred_val = np.argmax(pred_val, 2)
-        correct = np.sum(pred_val == batch_label[start_idx:end_idx])
+        correct = np.sum(pred_val == batch_label)
+        accuracy = float(correct) / (BATCH_SIZE*NUM_POINT)
+        print('accu = ',accuracy)
         total_correct += correct
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum += (loss_val*BATCH_SIZE)
@@ -350,7 +352,7 @@ def eval_one_epoch(sess, ops, test_writer):
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i, j] == l)
 
-        if  batch_idx%1==0:
+        if  batch_idx%10==0:
             log_eval()
     log_eval()
 
