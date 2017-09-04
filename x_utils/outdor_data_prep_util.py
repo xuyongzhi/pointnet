@@ -560,7 +560,6 @@ class Sorted_H5f():
         if not os.path.exists(obj_folder):
             os.makedirs(obj_folder)
 
-
         aim_scope = np.array([[-30,-30,-20],[20,20,50]])
         aim_scope = None
         n = 0
@@ -766,6 +765,7 @@ class Normed_H5f():
         pred_label_set = self.h5f.create_dataset( 'pred_label',shape=(total_block_N,sample_num),\
                 maxshape=(None,sample_num),dtype=np.int16,compression="gzip",\
                 chunks = (chunks_n,sample_num)  )
+        pred_label_set[:] = -1
 
         data_set.attrs['elements'] = self.data_elements
         for ele in self.data_elements:
@@ -776,6 +776,9 @@ class Normed_H5f():
         pred_label_set.attrs['valid_num'] = 0
         self.data_set = data_set
         self.label_set  =label_set
+        self.raw_xyz_dset = raw_xyz_dset
+        self.pred_label_set = pred_label_set
+
 
     def append_to_dset(self,dset_name,data_i,vacant_size=0):
         dset = self.h5f[dset_name]
@@ -789,6 +792,14 @@ class Normed_H5f():
         dset[valid_num : new_valid_num,...] = data_i
         dset.attrs['valid_num'] = new_valid_num
 
+    def set_dset(self,dset_name,data_i,start_idx,end_idx):
+        dset = self.h5f[dset_name]
+        if dset.shape[0] < end_idx:
+            dset.resize( (end_idx,) + dset.shape[1:] )
+        dset[start_idx:end_idx,:] = data_i
+        if dset.attrs['valid_num'] < end_idx:
+            dset.attrs['valid_num'] = end_idx
+
     def rm_invalid_data(self):
         for dset_name_i in self.h5f:
             dset_i = self.h5f[dset_name_i]
@@ -798,6 +809,30 @@ class Normed_H5f():
                 dset_i.resize( (valid_n,)+dset_i.shape[1:] )
 
 
+    def gen_obj(self):
+        base_fn = os.path.basename(self.file_name)
+        base_fn = os.path.splitext(base_fn)[0]
+        folder_path = os.path.dirname(self.file_name)
+        obj_folder = os.path.join(folder_path,base_fn)
+        if not os.path.exists(obj_folder):
+            os.makedirs(obj_folder)
+
+        gt_obj_fn = os.path.join(obj_folder,'gt.obj')
+        pred_obj_fn = os.path.join(obj_folder,'pred.obj')
+        with open(gt_obj_fn,'w') as gt_f:
+            with open(pred_obj_fn,'w') as pred_f:
+                for j in range(0,self.raw_xyz_dset.shape[0]):
+                    xyz_block = self.raw_xyz_dset[0,:]
+                    label_gt = self.label_set[0,:]
+                    label_pred = self.pred_label_set[0,:]
+                    for i in range(xyz_block.shape[0]):
+                        color_gt = g_label2color[label_gt[i]]
+                        color_pred = g_label2color[label_pred[i]]
+                        str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,0:]]) + '\t'
+                        str_color_gt = ' '.join( ['%d'%(d) for d in  color_gt]) + '\n'
+                        str_color_pred = ' '.join( ['%d'%(d) for d in  color_pred]) + '\n'
+                    gt_f.write( str_xyz+str_color_gt )
+                    pred_f.write( str_xyz+str_color_pred )
 #-------------------------------------------------------------------------------
 # provider for training and testing
 #------------------------------------------------------------------------------
@@ -853,6 +888,7 @@ class Net_Provider():
         self.eval_num_blocks = new_eval_num_blocks
 
         self.get_data_label_shape()
+        #self.test_tmp()
 
     def get_data_label_shape(self):
         data_batches,label_batches = self.get_train_batch(0,1)
@@ -862,12 +898,23 @@ class Net_Provider():
         self.eval_data_shape = list(label_batches.shape)
         self.eval_data_shape[0] = self.eval_num_blocks
 
+    def test_tmp(self):
+        s = 0
+        e = 1
+        train_data,train_label = self.get_train_batch(s,e)
+        eval_data,eval_label = self.get_eval_batch(s,e)
+        print('train:\n',train_data[0,0,:])
+        print('eval:\n',eval_data[0,0,:])
+        print('err=\n',train_data[0,0,:]-eval_data[0,0,:])
+        import pdb; pdb.set_trace()  # XXX BREAKPOINT
+
+
     def __exit__(self):
         print('exit Net_Provider')
         for norm_h5f in self.norm_h5f:
             norm_h5f.h5f.close()
 
-    def get_global_batch(self,g_start_idx,g_end_idx):
+    def global_idx_to_local(self,g_start_idx,g_end_idx):
         assert(g_start_idx>=0 and g_start_idx<=self.g_block_idxs[-1,1])
         assert(g_end_idx>=0 and g_end_idx<=self.g_block_idxs[-1,1])
         for i in range(self.g_file_N):
@@ -878,6 +925,29 @@ class Net_Provider():
                     if g_end_idx > self.g_block_idxs[j,0] and g_end_idx <= self.g_block_idxs[j,1]:
                         end_file_idx = j
                         local_end_idx = g_end_idx - self.g_block_idxs[j,0]
+
+        return start_file_idx,end_file_idx,local_start_idx,local_end_idx
+
+    def set_pred_label_batch(self,pred_label,g_start_idx,g_end_idx):
+        start_file_idx,end_file_idx,local_start_idx,local_end_idx = \
+            self.global_idx_to_local(g_start_idx,g_end_idx)
+        pred_start_idx = 0
+        for f_idx in range(start_file_idx,end_file_idx+1):
+            if f_idx == start_file_idx:
+                end = local_end_idx
+            else:
+                end = self.norm_h5f_L[f_idx].label_set.shape[0]
+            n = end-local_start_idx
+            self.norm_h5f_L[f_idx].set_dset('pred_label',\
+                pred_label[pred_start_idx:pred_start_idx+n,:],local_start_idx,end)
+            pred_start_idx += n
+        self.norm_h5f_L[f_idx].h5f.flush()
+
+
+    def get_global_batch(self,g_start_idx,g_end_idx):
+        start_file_idx,end_file_idx,local_start_idx,local_end_idx = \
+            self.global_idx_to_local(g_start_idx,g_end_idx)
+
         data_ls = []
         label_ls = []
         for f_idx in range(start_file_idx,end_file_idx+1):
@@ -893,6 +963,13 @@ class Net_Provider():
         data_batches = self.extract_channels(data_batches)
         label_batches = np.concatenate(label_ls,0)
         data_batches,label_batches = self.sample(data_batches,label_batches,self.NUM_POINT_OUT)
+
+     #   print('\nin global')
+     #   print('file_start = ',start_file_idx)
+     #   print('file_end = ',end_file_idx)
+     #   print('local_start = ',local_start_idx)
+     #   print('local end = ',local_end_idx)
+     #   #print('data = \n',data_batches[0,:])
 
         return data_batches,label_batches
 
@@ -927,7 +1004,6 @@ class Net_Provider():
         g_start_batch_idx = eval_start_batch_idx + self.eval_global_start_idx
         g_end_batch_idx = eval_end_batch_idx + self.eval_global_start_idx
         return self.get_global_batch(g_start_batch_idx,g_end_batch_idx)
-
 
 #-------------------------------------------------------------------------------
 
@@ -1519,7 +1595,8 @@ def main(file_list):
     outdoor_prep = OUTDOOR_DATA_PREP()
     actions = ['merge','sample_merged','obj_sampled_merged','norm_sampled_merged']
     actions = ['merge','sample_merged','norm_sampled_merged']
-    outdoor_prep.main(file_list,actions,sample_num=4096,sample_method='random',stride=[4,4,-1],step=[8,8,-1])
+    outdoor_prep.main(file_list,actions,sample_num=4096,sample_method='random',\
+                      stride=[4,4,-1],step=[8,8,-1])
 
     #outdoor_prep.Do_sort_to_blocks()
     #Do_extract_sub_area()
@@ -1539,7 +1616,7 @@ if __name__ == '__main__':
     #Test_sub_block_ks()
     #Do_sample()
     #Do_gen_sorted_block_obj()
-    Do_Norm(file_list)
-    #gen_file_list(GLOBAL_PARA.ETH_final_path)
+    #Do_Norm(file_list)
+    gen_file_list(GLOBAL_PARA.ETH_final_path)
     T = time.time() - START_T
     print('exit main, T = ',T)
