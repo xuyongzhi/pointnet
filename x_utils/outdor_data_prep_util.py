@@ -1537,7 +1537,7 @@ def Gen_raw_label_color_obj():
                     obj_labeled_f.write(str_k)
                 if k%(1000*100) == 0:
                     print('gen raw obj %d'%(k))
-                if k > 1000*1000*3:
+                if k > 1000*1000*1:
                     break
     total_N = k+1
     print('total_N = %d, labeled_N = %d (%0.3f), unlabeled_N = %d (%0.3f)'%\
@@ -1740,6 +1740,6 @@ if __name__ == '__main__':
     #gen_file_list(GLOBAL_PARA.seg_train_path)
     #Do_gen_gt_pred_objs(file_list)
     #Normed_H5f.show_all_colors()
-    Gen_raw_label_color_obj()
+    #Gen_raw_label_color_obj()
     T = time.time() - START_T
     print('exit main, T = ',T)
