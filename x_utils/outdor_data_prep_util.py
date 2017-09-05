@@ -25,6 +25,7 @@ UPER_DIR = os.path.dirname(ROOT_DIR)
 class GLOBAL_PARA():
     #ETH_traing_A =  '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training'
     ETH_traing_A =  os.path.join(UPER_DIR,'Dataset/ETH_Semantic3D_Dataset/training')
+    ETH_raw_partA = os.path.join( ETH_traing_A,'partA' )
     ETH_A_rawh5 = os.path.join( ETH_traing_A,'part_A_rawh5' )
     ETH_A_stride_1_step_1 = os.path.join( ETH_traing_A, 'A_stride_1_step_1' )
     ETH_A_stride_2_step_2 = os.path.join( ETH_traing_A, 'A_stride_2_step_2' )
@@ -71,7 +72,6 @@ def rm_file_name_midpart(fn,rm_part):
 
 
 
-
 class Raw_H5f():
     h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
     def __init__(self,raw_h5_f,file_name='Unknown'):
@@ -90,10 +90,11 @@ class Raw_H5f():
         self.xyz_min = self.xyz_dset.attrs['min']
         self.xyz_scope = self.xyz_max - self.xyz_min
 
-    def generate_objfile(self,obj_file_name):
+    def generate_objfile(self,obj_file_name,IsLabelColor):
         with open(obj_file_name,'w') as out_obj_file:
             xyz_dset = self.xyz_dset
             color_dset = self.color_dset
+            label_dset = self.label_dset
 
             row_step = self.h5_chunk_row_step_1M * 10
             row_N = xyz_dset.shape[0]
@@ -102,15 +103,24 @@ class Raw_H5f():
                 xyz_buf_k = xyz_dset[k:end,:]
                 color_buf_k = color_dset[k:end,:]
                 buf_k = np.hstack((xyz_buf_k,color_buf_k))
+                label_k = label_dset[k:end,0]
                 for j in range(0,buf_k.shape[0]):
-                    str_j = 'v   ' + '\t'.join( ['%0.5f'%(d) for d in  buf_k[j,0:3]]) + '  \t'\
-                    + '\t'.join( ['%d'%(d) for d in  buf_k[j,3:6]]) + '\n'
+                    if not IsLabelColor:
+                        str_j = 'v   ' + '\t'.join( ['%0.5f'%(d) for d in  buf_k[j,0:3]]) + '  \t'\
+                        + '\t'.join( ['%d'%(d) for d in  buf_k[j,3:6]]) + '\n'
+                    else:
+                        label = label_k[j]
+                        label_color = Normed_H5f.g_label2color[label]
+                        str_j = 'v   ' + '\t'.join( ['%0.5f'%(d) for d in  buf_k[j,0:3]]) + '  \t'\
+                        + '\t'.join( ['%d'%(d) for d in  label_color ]) + '\n'
                     out_obj_file.write(str_j)
 
                 rate = int(100.0 * end / row_N)
                 e = row_step / row_N
-                if rate > 5 and rate % 10 <= e:
+                if rate > 3 and rate % 3 <= e:
                     print('gen raw obj: %d%%'%(rate))
+                if rate > 3:
+                    break
 
     def add_geometric_scope(self,line_num_limit=None):
         ''' calculate the geometric scope of raw h5 data, and add the result to attrs of dset'''
@@ -145,6 +155,9 @@ class Raw_H5f():
 
 
 class Sorted_H5f():
+    '''
+    sorted by position and stored in blocks
+    '''
     raw_elements = 'xyz-color-label-intensity-orgrowindex'
     raw_xyz_index = range(0,3)
     raw_color_indx = range(3,6)
@@ -550,8 +563,8 @@ class Sorted_H5f():
                     + ' '.join( ['%d'%(d) for d in  buf_k[j,3:6]]) + '\n'
                 else:
                     label = buf_k[j,self.raw_label_index[0]]
-                    if label == 0:
-                        continue
+                  #  if label == 0:
+                  #      continue
                     label_color = Normed_H5f.g_label2color[label]
                     str_j = 'v ' + ' '.join( ['%0.3f'%(d) for d in  buf_k[j,0:3]]) + ' \t'\
                     + ' '.join( ['%d'%(d) for d in  label_color ]) + '\n'
@@ -1062,15 +1075,15 @@ class Net_Provider():
         for norm_h5f in self.norm_h5f_L:
             norm_h5f.gen_gt_pred_obj(  )
 
-#-------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------
+#preprocess ETH data
 #-------------------------------------------------------------------------------
 class OUTDOOR_DATA_PREP():
 
     def __init__(self):
         print('Init Class OUTDOOR_DATA_PREP')
         #print(self.ETH_training_partAh5_folder)
-
 
     def Do_merge_blocks(self,file_list,stride=[4,4,4],step=[8,8,8]):
         #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_step_0d5_stride_0d5,   '*_step_0d5_stride_0d5.h5') )
@@ -1095,7 +1108,6 @@ class OUTDOOR_DATA_PREP():
                 pool.append(p)
             for p in pool:
                 p.join()
-
 
     def merge_blocks_to_new_step(self,base_file_name,larger_step,larger_stride):
         '''merge blocks of sorted raw h5f to get new larger step
@@ -1495,6 +1507,42 @@ class OUTDOOR_DATA_PREP():
 
 
 
+def Gen_raw_label_color_obj():
+    base_fn = os.path.join(GLOBAL_PARA.ETH_raw_partA,'bildstein_station5_xyz_intensity_rgb')
+    data_fn = base_fn + '.txt'
+    label_fn = base_fn + '.labels'
+    obj_fn = base_fn + '.obj'
+    obj_labeled_fn = base_fn + '_labeled.obj'
+    obj_unlabeled_fn = base_fn + '_unlabeled.obj'
+    labeled_N = 0
+    unlabeled_N = 0
+    with open(data_fn,'r') as data_f:
+     with open(label_fn,'r') as label_f:
+      with open(obj_fn,'w') as obj_f:
+       with open(obj_labeled_fn,'w') as obj_labeled_f:
+        with open(obj_unlabeled_fn,'w') as obj_unlabeled_f:
+            data_label_fs = itertools.izip(data_f,label_f)
+            for k,data_label_line in enumerate(data_label_fs):
+                data_k =np.fromstring( data_label_line[0].strip(),dtype=np.float32,sep=' ' )
+                label_k = np.fromstring( data_label_line[1].strip(),dtype=np.int16,sep=' ' )
+                color_k = Normed_H5f.g_label2color[label_k[0]]
+                str_k = 'v ' + ' '.join( [str(d) for d in data_k[0:3] ] ) + ' \t' +\
+                    ' '.join( [str(c) for c in color_k] ) + '\n'
+                obj_f.write(str_k)
+                if label_k == 0:
+                    unlabeled_N += 1
+                    obj_unlabeled_f.write(str_k)
+                else:
+                    labeled_N += 1
+                    obj_labeled_f.write(str_k)
+                if k%(1000*100) == 0:
+                    print('gen raw obj %d'%(k))
+                if k > 1000*1000*3:
+                    break
+    total_N = k+1
+    print('total_N = %d, labeled_N = %d (%0.3f), unlabeled_N = %d (%0.3f)'%\
+          (total_N,labeled_N,1.0*labeled_N/total_N,unlabeled_N,1.0*unlabeled_N/total_N))
+
 def Do_Norm(file_list):
     for fn in file_list:
         with h5py.File(fn,'r') as f:
@@ -1612,16 +1660,20 @@ def Add_sorted_total_row_block_N():
 
 
 def Do_gen_raw_obj():
-    global g_file_list
-    #ETH_training_partAh5_folder = '/short/dh01/yx2146/Dataset/ETH_Semantic3D_Dataset/training/part_A_rawh5'
-    #folder_path = ETH_training_partAh5_folder
-    #file_list = glob.glob( os.path.join(folder_path,'sg27_station5*.hdf5') )
-    for fn in g_file_list:
+    ETH_training_partAh5_folder =  GLOBAL_PARA.ETH_A_rawh5
+    folder_path = ETH_training_partAh5_folder
+    file_list = glob.glob( os.path.join(folder_path,'b*.hdf5') )
+    IsLabelColor = True
+    for fn in file_list:
         print(fn)
-        obj_fn = os.path.splitext(fn)[0]+'.obj'
+        if IsLabelColor:
+            meta_fn = '_labeledColor'
+        else:
+            meta_fn = ''
+        obj_fn = os.path.splitext(fn)[0]+meta_fn+'.obj'
         with h5py.File(fn,'r') as  raw_h5_f:
             raw_h5f = Raw_H5f(raw_h5_f)
-            raw_h5f.generate_objfile(obj_fn)
+            raw_h5f.generate_objfile(obj_fn,IsLabelColor)
 
 def Do_gen_sorted_block_obj(file_list):
     for fn in file_list:
@@ -1654,6 +1706,7 @@ def gen_file_list(folder,format='h5'):
     print('all file list file write OK ')
 
 
+
 def main(file_list):
 
     outdoor_prep = OUTDOOR_DATA_PREP()
@@ -1681,11 +1734,12 @@ if __name__ == '__main__':
     #Do_Check_xyz()
     #Test_sub_block_ks()
     #Do_sample()
-    Do_gen_sorted_block_obj(file_list)
+    #Do_gen_sorted_block_obj(file_list)
     #Do_gen_normed_obj(file_list)
     #Do_Norm(file_list)
     #gen_file_list(GLOBAL_PARA.seg_train_path)
     #Do_gen_gt_pred_objs(file_list)
     #Normed_H5f.show_all_colors()
+    Gen_raw_label_color_obj()
     T = time.time() - START_T
     print('exit main, T = ',T)
