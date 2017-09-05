@@ -1508,7 +1508,7 @@ class OUTDOOR_DATA_PREP():
 
 
 def Gen_raw_label_color_obj():
-    base_fn = os.path.join(GLOBAL_PARA.ETH_raw_partA,'bildstein_station5_xyz_intensity_rgb')
+    base_fn = os.path.join(GLOBAL_PARA.ETH_raw_partA,'untermaederbrunnen_station1_xyz_intensity_rgb')
     data_fn = base_fn + '.txt'
     label_fn = base_fn + '.labels'
     obj_fn = base_fn + '.obj'
