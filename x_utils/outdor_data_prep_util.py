@@ -34,7 +34,7 @@ class GLOBAL_PARA():
     ETH_A_stride_8_step_8 = os.path.join( ETH_traing_A, 'A_stride_8_step_8' )
     ETH_A_stride_20_step_10 = os.path.join( ETH_traing_A, 'A_stride_20_step_10' )
 
-    ETH_final_path = os.path.join(ROOT_DIR,'x_sem_seg/ETH3D_sem_seg_hdf5_data')
+    seg_train_path = os.path.join(ROOT_DIR,'x_sem_seg/ETH3D_sem_seg_hdf5_data')
 
     h5_chunk_row_step_1M = g_h5_chunk_row_step_1M
     h5_chunk_row_step_10M = h5_chunk_row_step_1M * 10
@@ -536,20 +536,29 @@ class Sorted_H5f():
                 aim_dset[org_row_N+k:org_row_N+end,:] = dset_buf[choice_k-choice_k.min(),:]
             aim_dset.attrs['valid_num'] = end + org_row_N
 
-    def generate_one_block_to_object(self,block_k,out_obj_file):
+    def generate_one_block_to_object(self,block_k,out_obj_file,IsLabelColor=False):
         row_step = self.h5_chunk_row_step_1M * 10
         dset_k = self.get_blocked_dset(block_k)
         row_N = dset_k.shape[0]
         for k in range(0,row_N,row_step):
             end = min(k+row_step,row_N)
-            buf_k = dset_k[k:end,0:6]
+            buf_k = dset_k[k:end,:]
             #buf_k[:,0:3] -= middle
             for j in range(0,buf_k.shape[0]):
-                str_j = 'v ' + ' '.join( ['%0.3f'%(d) for d in  buf_k[j,0:3]]) + ' \t'\
-                 + ' '.join( ['%d'%(d) for d in  buf_k[j,3:6]]) + '\n'
+                if not IsLabelColor:
+                    str_j = 'v ' + ' '.join( ['%0.3f'%(d) for d in  buf_k[j,0:3]]) + ' \t'\
+                    + ' '.join( ['%d'%(d) for d in  buf_k[j,3:6]]) + '\n'
+                else:
+                    label = buf_k[j,self.raw_label_index[0]]
+                    if label == 0:
+                        continue
+                    label_color = Normed_H5f.g_label2color[label]
+                    str_j = 'v ' + ' '.join( ['%0.3f'%(d) for d in  buf_k[j,0:3]]) + ' \t'\
+                    + ' '.join( ['%d'%(d) for d in  label_color ]) + '\n'
+
                 out_obj_file.write(str_j)
 
-    def generate_blocks_to_object(self):
+    def generate_blocks_to_object(self,IsLabelColor=False):
         if self.file_name == None:
             print('set file_name (generate_blocks_to_object)')
             return
@@ -577,9 +586,13 @@ class Sorted_H5f():
                     IsInScope = (min_i > aim_scope[0,:]).all() and ( max_i < aim_scope[1,:]).all()
                 if not IsInScope:
                     continue
-                out_fn = os.path.join(obj_folder,dset_name+'_'+str(row_N)+'.obj')
+                if IsLabelColor:
+                    name_meta = 'labeled_'
+                else:
+                    name_meta = ''
+                out_fn = os.path.join(obj_folder,name_meta+dset_name+'_'+str(row_N)+'.obj')
                 with open(out_fn,'w') as out_f:
-                    self.generate_one_block_to_object(dset_name,out_f)
+                    self.generate_one_block_to_object(dset_name,out_f,IsLabelColor)
                 n += row_N
                 rate = 100.0 * n / self.total_row_N
                 if int(rate) % 2 == 0 and rate - last_rate > 3:
@@ -712,19 +725,20 @@ class Normed_H5f():
     g_label2class = {0: 'unlabeled points', 1: 'man-made terrain', 2: 'natural terrain',\
                      3: 'high vegetation', 4: 'low vegetation', 5: 'buildings', \
                      6: 'hard scape', 7: 'scanning artefacts', 8: 'cars'}
-    g_label2color = {0:	[0,255,0],
+    g_label2color = {0:	[0,0,0],
                      1:	[0,0,255],
                      2:	[0,255,255],
                      3: [255,255,0],
                      4: [255,0,255],
-                     5: [100,100,255],
-                     6: [200,200,100],
+                     10: [100,100,255],
+                     6: [0,255,0],
                      7: [170,120,200],
-                     8: [255,0,0]}
-                     #9: [200,100,100],
-                     #10:[10,200,100],
-                     #11:[200,200,200],
-                     #12:[50,50,50]}
+                     8: [255,0,0],
+                     9: [200,100,100],
+                     5:[10,200,100],
+                     11:[200,200,200],
+                     12:[50,50,50],
+                     13:[200,200,100]}
     g_class2label = {cls:label for label,cls in g_label2class.iteritems()}
     g_class2color = {}
     for i in g_label2class:
@@ -738,6 +752,7 @@ class Normed_H5f():
     data_elements = ['xyz_1norm','xyz_midnorm','color_1norm','intensity_1norm']
     elements_idxs = {data_elements[0]:range(0,3),data_elements[1]:range(3,6),\
                      data_elements[2]:range(6,9),data_elements[3]:range(9,10)}
+
     def __init__(self,h5f,file_name):
         self.h5f = h5f
         self.file_name = file_name
@@ -746,6 +761,25 @@ class Normed_H5f():
         for dn in self.dataset_names:
             if dn in h5f:
                 setattr(self,dn+'_set', h5f[dn])
+    @staticmethod
+    def show_all_colors():
+        from PIL import Image
+        for label,color in Normed_H5f.g_label2color.iteritems():
+            if label < len(Normed_H5f.g_label2class):
+                cls = Normed_H5f.g_label2class[label]
+            else:
+                cls = 'empty'
+            data = np.zeros((512,512,3),dtype=np.uint8)
+            color_ = np.array(color,dtype=np.uint8)
+            data += color_
+            img = Image.fromarray(data,'RGB')
+            img.save('colors/'+str(label)+'_'+cls+'.png')
+            img.show()
+
+    def label2color(self,label):
+        if label<0 or label > len(self.g_label2color)-1:
+            label = 0
+        return self.g_label2color[label]
 
     def create_dsets(self,total_block_N,sample_num):
         chunks_n = 8
@@ -776,7 +810,7 @@ class Normed_H5f():
         pred_label_set.attrs['valid_num'] = 0
         self.data_set = data_set
         self.label_set  =label_set
-        self.raw_xyz_dset = raw_xyz_dset
+        self.raw_xyz_set = raw_xyz_set
         self.pred_label_set = pred_label_set
 
 
@@ -809,7 +843,7 @@ class Normed_H5f():
                 dset_i.resize( (valid_n,)+dset_i.shape[1:] )
 
 
-    def gen_obj(self):
+    def gen_gt_pred_obj(self):
         base_fn = os.path.basename(self.file_name)
         base_fn = os.path.splitext(base_fn)[0]
         folder_path = os.path.dirname(self.file_name)
@@ -817,22 +851,41 @@ class Normed_H5f():
         if not os.path.exists(obj_folder):
             os.makedirs(obj_folder)
 
+        if self.pred_label_set.shape[0]==self.label_set.shape[0]:
+            IsGenPred = True
+        else:
+            IsGenPred = False
         gt_obj_fn = os.path.join(obj_folder,'gt.obj')
         pred_obj_fn = os.path.join(obj_folder,'pred.obj')
+        dif_obj_fn = os.path.join(obj_folder,'dif.obj')
         with open(gt_obj_fn,'w') as gt_f:
             with open(pred_obj_fn,'w') as pred_f:
-                for j in range(0,self.raw_xyz_dset.shape[0]):
-                    xyz_block = self.raw_xyz_dset[0,:]
-                    label_gt = self.label_set[0,:]
-                    label_pred = self.pred_label_set[0,:]
+              with open(dif_obj_fn,'w') as dif_f:
+                print('gen gt obj file: ',gt_obj_fn)
+                print('gen pred obj file: ',pred_obj_fn)
+                print('gen dif obj file: ',pred_obj_fn)
+                for j in range(0,self.raw_xyz_set.shape[0]):
+                    xyz_block = self.raw_xyz_set[j,:]
+                    label_gt = self.label_set[j,:]
+                    if IsGenPred:
+                        label_pred = self.pred_label_set[j,:]
                     for i in range(xyz_block.shape[0]):
-                        color_gt = g_label2color[label_gt[i]]
-                        color_pred = g_label2color[label_pred[i]]
-                        str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,0:]]) + '\t'
+                        color_gt = self.label2color( label_gt[i] )
+                        str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,:] ]) + ' \t'
                         str_color_gt = ' '.join( ['%d'%(d) for d in  color_gt]) + '\n'
-                        str_color_pred = ' '.join( ['%d'%(d) for d in  color_pred]) + '\n'
-                    gt_f.write( str_xyz+str_color_gt )
-                    pred_f.write( str_xyz+str_color_pred )
+                        str_gt = str_xyz + str_color_gt
+                        gt_f.write( str_gt )
+
+                        if IsGenPred:
+                            color_pred = self.label2color( label_pred[i] )
+                            str_color_pred = ' '.join( ['%d'%(d) for d in  color_pred]) + '\n'
+                            str_pred = str_xyz + str_color_pred
+                            pred_f.write( str_pred )
+
+                            if label_gt[i] != label_pred[i]:
+                                dif_f.write(str_pred)
+
+
 #-------------------------------------------------------------------------------
 # provider for training and testing
 #------------------------------------------------------------------------------
@@ -895,7 +948,7 @@ class Net_Provider():
         self.train_data_shape = list(data_batches.shape)
         self.train_data_shape[0] = self.train_num_blocks
         self.num_channels = self.train_data_shape[2]
-        self.eval_data_shape = list(label_batches.shape)
+        self.eval_data_shape = list(data_batches.shape)
         self.eval_data_shape[0] = self.eval_num_blocks
 
     def test_tmp(self):
@@ -1005,6 +1058,10 @@ class Net_Provider():
         g_end_batch_idx = eval_end_batch_idx + self.eval_global_start_idx
         return self.get_global_batch(g_start_batch_idx,g_end_batch_idx)
 
+    def gen_gt_pred_objs(self):
+        for norm_h5f in self.norm_h5f_L:
+            norm_h5f.gen_gt_pred_obj(  )
+
 #-------------------------------------------------------------------------------
 
 #-------------------------------------------------------------------------------
@@ -1101,7 +1158,7 @@ class OUTDOOR_DATA_PREP():
                     Is_gen_obj = 'obj_sampled_merged' in self.actions
                     Is_gen_norm = 'norm_sampled_merged' in self.actions
                     new_sh5f.file_sample(self.sample_num,self.sample_method,\
-                                         Is_gen_norm=Is_gen_norm,Is_gen_obj = Is_gen_obj)
+                                         gen_norm=Is_gen_norm,gen_obj = Is_gen_obj)
 
 
     def gen_rawETH_to_h5(self,label_files_glob,line_num_limit=None):
@@ -1566,16 +1623,23 @@ def Do_gen_raw_obj():
             raw_h5f = Raw_H5f(raw_h5_f)
             raw_h5f.generate_objfile(obj_fn)
 
-def Do_gen_sorted_block_obj():
-    global g_file_list
-    #folder_path = GLOBAL_PARA.ETH_A_stride_4_step_8
-    #file_list = glob.glob( os.path.join(folder_path,\
-                 #'*4096.h5') )
-    for fn in g_file_list:
+def Do_gen_sorted_block_obj(file_list):
+    for fn in file_list:
         with  h5py.File(fn,'r') as h5f:
             sorted_h5f = Sorted_H5f(h5f,fn)
-            sorted_h5f.generate_blocks_to_object()
+            sorted_h5f.generate_blocks_to_object(True)
 
+def Do_gen_normed_obj(file_list):
+    for fn in file_list:
+        with  h5py.File(fn,'r') as h5f:
+            norm_h5f = Normed_H5f(h5f,fn)
+            norm_h5f.gen_gt_pred_obj()
+
+def Do_gen_gt_pred_objs(file_list):
+    for fn in file_list:
+        with h5py.File(fn,'r') as h5f:
+            norm_h5f = Normed_H5f(h5f,fn)
+            norm_h5f.gen_gt_pred_obj()
 
 def gen_file_list(folder,format='h5'):
     file_list = glob.glob( os.path.join(folder,'*.'+format) )
@@ -1596,7 +1660,7 @@ def main(file_list):
     actions = ['merge','sample_merged','obj_sampled_merged','norm_sampled_merged']
     actions = ['merge','sample_merged','norm_sampled_merged']
     outdoor_prep.main(file_list,actions,sample_num=4096,sample_method='random',\
-                      stride=[4,4,-1],step=[8,8,-1])
+                      stride=[8,8,-1],step=[8,8,-1])
 
     #outdoor_prep.Do_sort_to_blocks()
     #Do_extract_sub_area()
@@ -1605,18 +1669,23 @@ def main(file_list):
     #outdoor_prep.DO_gen_rawETH_to_h5()
 
 if __name__ == '__main__':
-    #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_4_step_8, \
-                #'bildstein_station5_sub_m80_m5_stride_4_step_8_100_random_4096.h5') )
-    file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_4_step_8, \
+ #   file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1, \
+ #               '*_m5.h5') )
+    file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_8_step_8, \
                 '*_4096.h5') )
+   # file_list = glob.glob( os.path.join(GLOBAL_PARA.seg_train_path, \
+   #             '*.h5') )
     #main(file_list)
     #Do_gen_raw_obj()
     #Add_sorted_total_row_block_N()
     #Do_Check_xyz()
     #Test_sub_block_ks()
     #Do_sample()
-    #Do_gen_sorted_block_obj()
+    Do_gen_sorted_block_obj(file_list)
+    #Do_gen_normed_obj(file_list)
     #Do_Norm(file_list)
-    gen_file_list(GLOBAL_PARA.ETH_final_path)
+    #gen_file_list(GLOBAL_PARA.seg_train_path)
+    #Do_gen_gt_pred_objs(file_list)
+    #Normed_H5f.show_all_colors()
     T = time.time() - START_T
     print('exit main, T = ',T)

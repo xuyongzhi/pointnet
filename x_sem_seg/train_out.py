@@ -94,7 +94,7 @@ else:
     train_file_list = []
     eval_file_list = ALL_FILES
     train_num_block_rate = 0
-    eval_num_block_rate = 1
+    eval_num_block_rate = 0.2
 
 net_provider = Net_Provider( train_file_list,eval_file_list,NUM_POINT,\
                             only_evaluate = FLAGS.only_evaluate,\
@@ -341,10 +341,13 @@ def eval_one_epoch(sess, ops, test_writer):
 
         if FLAGS.only_evaluate:
             net_provider.set_pred_label_batch(pred_val,start_idx,end_idx)
-            if batch_idx%100==0:
+            if batch_idx%10==0:
                 log_eval(batch_idx)
+                log_string('write pred_label into h5f [%d,%d]'%(start_idx,end_idx))
 
     log_eval(batch_idx)
+    #if FLAGS.only_evaluate:
+    #    net_provider.gen_gt_pred_objs()
 
 
 
