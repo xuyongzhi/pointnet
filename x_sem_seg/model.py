@@ -6,7 +6,7 @@ import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
-sys.path.append(os.path.join(ROOT_DIR, 'utils'))
+sys.path.append(os.path.join(ROOT_DIR, 'x_utils'))
 import tf_util
 
 def placeholder_inputs(batch_size, num_point,num_channels=9):

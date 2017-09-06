@@ -189,7 +189,7 @@ def train():
             eval_one_epoch(sess, ops, test_writer)
 
             # Save the variables to disk.
-            if epoch % 10 == 0:
+            if epoch % 1 == 0:
                 save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
                 log_string("Model saved in file: %s" % save_path)
 
@@ -204,6 +204,7 @@ def train_one_epoch(sess, ops, train_writer,epoch):
 
     file_size = current_data.shape[0]
     num_batches = file_size // BATCH_SIZE
+    num_batches = min(200,num_batches)
 
     total_correct = 0
     total_seen = 0

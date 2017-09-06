@@ -1,6 +1,6 @@
 #!/bin/bash
 
-LOG_DIR="org_log1"
+LOG_DIR="log6"
 echo "LOG_DIR=$LOG_DIR"
 ## data/stanford_indoor3d/Area_6_pantry_1.npy
 python batch_inference.py --model_path $LOG_DIR/model.ckpt --dump_dir $LOG_DIR/dump_eval --output_filelist $LOG_DIR/output_filelist_eva.txt --room_data_filelist meta/area6_data_label_1.txt --visu

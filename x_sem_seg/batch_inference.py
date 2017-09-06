@@ -84,7 +84,6 @@ def evaluate():
     saver.restore(sess, MODEL_PATH)
     log_string("Model restored.")
 
-    import pdb; pdb.set_trace()  # XXX BREAKPOINT
     ops = {'pointclouds_pl': pointclouds_pl,
            'labels_pl': labels_pl,
            'is_training_pl': is_training_pl,
