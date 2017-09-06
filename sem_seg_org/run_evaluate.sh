@@ -1,1 +1,4 @@
-python x_batch_inference.py --model_path log6/model.ckpt --dump_dir log6/x_dump --output_filelist log6/x_output_filelist.txt --room_data_filelist meta/area6_data_label.txt --visu
+#!/bin/bash
+
+LOG_DIR="log6_org_OK"
+python batch_inference.py --model_path $LOG_DIR/model.ckpt --dump_dir $LOG_DIR/dump --output_filelist $LOG_DIR/output_filelist.txt --room_data_filelist meta/area6_data_label.txt --visu

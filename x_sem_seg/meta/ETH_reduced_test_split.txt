@@ -1,1 +1,0 @@
-../Dataset/ETH_Semantic3D_Dataset/reduced_test_split/MarketplaceFeldkirch_Station4_rgb_intensity-reduced_1.txt
