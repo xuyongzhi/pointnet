@@ -22,8 +22,16 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 UPER_DIR = os.path.dirname(ROOT_DIR)
 
+#DATASET_NAME = 'ETH'
+DATASET_NAME = 'STANFORD_INDOOR3D'
+
 class GLOBAL_PARA():
     stanford_indoor3d_collected_path = os.path.join(ROOT_DIR,'data/stanford_indoor3d')
+    stanford_indoor3d_rawh5 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_rawh5')
+    stanford_indoor3d_sortedh5 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5')
+    stanford_indoor3d_stride_0d5_step_0d5 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_0.5')
+    stanford_indoor3d_stride_0d5_step_1 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_1')
+    stanford_indoor3d_normed_stride_0d5_step_1_4096 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_normedh5_stride_0.5_step_1_4096')
 
     ETH_traing_A =  os.path.join(UPER_DIR,'Dataset/ETH_Semantic3D_Dataset/training')
     ETH_raw_partA = os.path.join( ETH_traing_A,'partA' )
@@ -79,6 +87,7 @@ class Raw_H5f():
     (2) flexible  for different data types: each type in one dataset
     (3) class "Sorted_H5f" will sort data to blocks based on this class
     '''
+    file_flag = 'RAW_H5F'
     h5_num_row_1M = 50*1000
     dtypes = { 'xyz':np.float32, 'intensity':np.int32, 'color':np.uint8,'label':np.uint8 }
     num_channels = {'xyz':3,'intensity':1,'color':3,'label':1}
@@ -98,13 +107,31 @@ class Raw_H5f():
         nc = self.num_channels[data_name]
         dset = self.raw_h5f.create_dataset(data_name,shape=(self.num_default_row,nc),\
                                     maxshape=(None,nc),dtype=self.dtypes[data_name],\
-                                    chunks = (self.h5_num_row_1M,nc) )
+                                    chunks = (self.h5_num_row_1M,nc),\
+                                    compression = "gzip")
         dset.attrs['valid_num'] = 0
         setattr(self,data_name+'_dset',dset)
         return dset
+    def get_total_num_channels_name_list(self):
+        total_num_channels = 0
+        data_name_list = [str(dn) for dn in self.raw_h5f]
+        for dn in data_name_list:
+            total_num_channels += self.num_channels[dn]
+
+        return total_num_channels,data_name_list
 
     def append_to_dset(self,dset_name,new_data):
        self.add_to_dset(dset_name,new_data,None,None)
+
+    def get_all_dsets(self,start_idx,end_idx):
+        out_dset_order = ['xyz','color','label','intensity']
+        data_list = []
+        for dset_name in out_dset_order:
+            if dset_name in self.raw_h5f:
+                data_k = self.raw_h5f[dset_name][start_idx:end_idx,:]
+                data_list.append(data_k)
+        data = np.concatenate(data_list,1)
+        return data
 
     def add_to_dset(self,dset_name,new_data,start,end):
         dset = self.get_dataset(dset_name)
@@ -207,15 +234,15 @@ class Sorted_H5f():
     (1) sorted: sort raw h5f by position to blocks, each block in one dataset
     (2) store all types of data (xyz,color,intensity,label..) together (float32)
     '''
-    raw_elements = 'xyz-color-label-intensity-orgrowindex'
-    raw_xyz_index = range(0,3)
-    raw_color_indx = range(3,6)
-    raw_label_index = range(6,7)
-    raw_intensity_index = range(7,8)
-    raw_orgrowindex = range(8,9)
+    file_flag = 'SORTED_H5F'
+    data_name_list_candidate = ['xyz','color','label','intensity','org_row_index']
+    data_channels = {'xyz':3,'color':3,'label':1,'intensity':1,'org_row_index':1}
+    IS_CHECK = False # when true, store org_row_index
+    data_idxs = {}
+    total_num_channels = 0
 
     actions = ''
-    stride_to_align = 8
+    stride_to_align = 1
     h5_num_row_1M = g_h5_num_row_1M
 
     def __init__(self,sorted_h5f,file_name=None):
@@ -226,6 +253,7 @@ class Sorted_H5f():
         else:
             self.file_name = None
         self.reduced_num = 0
+        self.update_data_index()
 
     def get_summary_info(self):
         root_attrs = ['total_row_N','total_block_N',\
@@ -253,6 +281,20 @@ class Sorted_H5f():
                 print(dset[0:min(4,dset.shape[0]),:])
                 print(dset[-1,:])
 
+    def update_data_index(self,data_name_list_In=None):
+        if data_name_list_In == None:
+            data_name_list_In = self.data_name_list_candidate[0:3]
+        data_index = {}
+        last_index = 0
+        if self.IS_CHECK and 'org_row_index' not in data_name_list_In:
+            data_name_list_In += ['org_row_index']
+        data_name_list_In = set(data_name_list_In)
+        for dn in self.data_name_list_candidate:
+            if dn in data_name_list_In:
+                data_index[dn] = range(last_index,last_index+self.data_channels[dn])
+                last_index += self.data_channels[dn]
+        self.data_idxs = data_index
+        self.total_num_channels = last_index
 
     def set_root_attr(self,attr,value):
         setattr(self,attr,value)
@@ -273,7 +315,7 @@ class Sorted_H5f():
 
         self.set_root_attr('total_row_N',total_row_N)
         self.set_root_attr('total_block_N',n+1)
-        print('add_total_row_block_N:  file: %s \n   total_row_N = %d,  total_block_N = %d'%(self.file_name,self.total_row_N,self.total_block_N))
+        print('add_total_row_block_N:  file: %s \n   total_row_N = %d,  total_block_N = %d'%( os.path.basename(self.file_name),self.total_row_N,self.total_block_N))
         return total_row_N, n+1
 
     def copy_root_summaryinfo_from_another(self,h5f0,copy_flag):
@@ -299,6 +341,8 @@ class Sorted_H5f():
         for attr in attrs:
             if hasattr(raw_h5f,attr):
                 self.sorted_h5f.attrs[attr] = getattr(raw_h5f,attr)
+        _,data_name_list = raw_h5f.get_total_num_channels_name_list()
+        self.update_data_index(data_name_list)
         self.get_summary_info()
 
     def set_step_stride(self,block_step,block_stride):
@@ -444,7 +488,6 @@ class Sorted_H5f():
                             if not max_check:
                                 print('\nmax check failed in get_sub_blcok_ks')
                                 print('new max = ',max_k_new,'\norg max = ',max_k)
-                            import pdb; pdb.set_trace()  # XXX BREAKPOINT
 
                         else:
                             #print('both min and max check passed, i_xyz= ',[i_x,i_y,i_z])
@@ -538,27 +581,22 @@ class Sorted_H5f():
             print('\nall %d dsets  xyz scope check passed\n'%(n))
         return Flag
 
-    def check_equal_to_raw(self,raw_f):
-        raw_xyz_set = raw_f['xyz']
-        raw_color_set = raw_f['color']
-        raw_label_set = raw_f['label']
-        raw_intensity_set = raw_f['intensity']
+    def check_equal_to_raw(self,raw_h5f):
         check_flag = True
         for k,block_k in enumerate(self.sorted_h5f):
             #print('checing block %s'%(block_k))
             dset_k = self.sorted_h5f[block_k]
             step = max(int(dset_k.shape[0]/30),1)
-            flag_k = True
             for i in range(0,dset_k.shape[0],step):
-                sorted_d_i = dset_k[i,0:8]
-                raw_k = dset_k[i,8]
+                sorted_d_i = dset_k[i,0:-1]
+                raw_k = int(dset_k[i,-1])
                 if raw_k < 0 or raw_k > 16777215: # for float32, it is not accurate again
                     continue
-                raw_d_i = np.concatenate(  [raw_xyz_set[raw_k,:],raw_color_set[raw_k,:],raw_label_set[raw_k,:],raw_intensity_set[raw_k,:]] )
+                #raw_d_i = np.concatenate(  [raw_xyz_set[raw_k,:],raw_color_set[raw_k,:],raw_label_set[raw_k,:],raw_intensity_set[raw_k,:]] )
+                raw_d_i = raw_h5f.get_all_dsets(raw_k,raw_k+1)
                 error = raw_d_i - sorted_d_i
                 err = np.linalg.norm( error )
                 if err != 0:
-                    flag_k = False
                     check_flag = False
                     print('\nsorted error:raw_k=%d  block_k=%s,i=%d'%(raw_k,block_k,i))
                     print('raw_data = \n',raw_d_i,'\nsorted_data = \n',sorted_d_i)
@@ -584,7 +622,7 @@ class Sorted_H5f():
         else:
             new_row_N = source_N
 
-        aim_dset = self.get_blocked_dset(aim_block_k,vacant_size)
+        aim_dset = self.get_blocked_dset(aim_block_k,vacant_size,self.total_num_channels)
         row_step = self.h5_num_row_1M * 10
         org_row_N = aim_dset.attrs['valid_num']
         aim_dset.resize((org_row_N+new_row_N+vacant_size,aim_dset.shape[1]))
@@ -611,7 +649,7 @@ class Sorted_H5f():
                     str_j = 'v ' + ' '.join( ['%0.3f'%(d) for d in  buf_k[j,0:3]]) + ' \t'\
                     + ' '.join( ['%d'%(d) for d in  buf_k[j,3:6]]) + '\n'
                 else:
-                    label = buf_k[j,self.raw_label_index[0]]
+                    label = buf_k[j,self.data_idxs['label'][0]]
                   #  if label == 0:
                   #      continue
                     label_color = Normed_H5f.g_label2color[label]
@@ -620,9 +658,9 @@ class Sorted_H5f():
 
                 out_obj_file.write(str_j)
 
-    def generate_blocks_to_object(self,IsLabelColor=False):
+    def gen_file_obj(self,IsLabelColor=False):
         if self.file_name == None:
-            print('set file_name (generate_blocks_to_object)')
+            print('set file_name (gen_file_obj)')
             return
         base_fn = os.path.basename(self.file_name)
         base_fn = os.path.splitext(base_fn)[0]
@@ -719,7 +757,7 @@ class Sorted_H5f():
             print('reduced block num = %d  %d%%'%(reduced_block_N,100*reduced_block_N/self.total_block_N))
 
             if gen_obj:
-               sampled_sh5f.generate_blocks_to_object()
+               sampled_sh5f.gen_file_obj()
             if gen_norm:
                 sampled_sh5f.file_normalization()
 
@@ -730,17 +768,16 @@ class Sorted_H5f():
         color / 255
         '''
         raw_dset_k = self.sorted_h5f[block_k_str]
-        batch_zero_flag = 'local'
-        color_1norm = raw_dset_k[:,self.raw_color_indx] / 255.0
+        batch_zero_flag = 'local'  # NOTE: Qi use global
+
+        norm_data_list = []
+
         if batch_zero_flag == 'global':
             batch_zero = self.xyz_min_aligned
         else:
             batch_zero = raw_dset_k.attrs['xyz_min']
-        raw_xyz = raw_dset_k[:,self.raw_xyz_index]
+        raw_xyz = raw_dset_k[:,self.data_idxs['xyz']]
         xyz = raw_xyz - batch_zero
-        label = raw_dset_k[:,self.raw_label_index]
-        label = np.squeeze(label,-1)
-        intensity = raw_dset_k[:,self.raw_intensity_index]
 
         xyz_max = xyz.max(axis=0)
         xyz_min = xyz.min(axis=0)
@@ -749,10 +786,22 @@ class Sorted_H5f():
         xyz_midnorm = xyz
         xyz_midnorm[:,0:2] -= (xyz_min[0:2] + block_mid[0:2])
 
-        intensity_1norm = (intensity+2000)/2000
+        norm_data_list.append(xyz_1norm)
+        norm_data_list.append(xyz_midnorm)
 
-        data_norm = np.hstack( (xyz_1norm,xyz_midnorm,color_1norm,intensity_1norm) )
+        if 'color' in self.data_idxs:
+            color_1norm = raw_dset_k[:,self.data_idxs['color']] / 255.0
+            norm_data_list.append(color_1norm)
 
+        if 'intensity' in self.data_idxs:
+            intensity = raw_dset_k[:,self.data_idxs['intensity']]
+            intensity_1norm = (intensity+2000)/2000
+            norm_data_list.append(intensity_1norm)
+
+        # order: 'xyz_1norm' 'xyz_midnorm' 'color_1norm' 'intensity_1norm'
+        data_norm = np.concatenate( norm_data_list,1 )
+
+        label = raw_dset_k[:,self.data_idxs['label'][0]]
         #print('raw: \n',raw_dset_k[0,:])
         #print('norm:\n',dset_norm[0,:])
         return data_norm,label,raw_xyz
@@ -764,12 +813,13 @@ class Sorted_H5f():
 
     def file_normalization(self):
         parts = os.path.splitext(self.file_name)
-        normalized_filename =  parts[0]+'_norm'+parts[1]
-        print('stat gen normalized file: ',normalized_filename)
+        normalized_filename =  parts[0]+'_norm.nh5'
+        print('start gen normalized file: ',normalized_filename)
         with h5py.File(normalized_filename,'w') as h5f:
             normed_h5f = Normed_H5f(h5f,normalized_filename)
-            sample_point_n = self.get_sample_shape()[0]
-            normed_h5f.create_dsets(self.total_block_N,sample_point_n)
+            sample_point_n,raw_channels = self.get_sample_shape()
+            normed_num_channels = raw_channels -1 - self.IS_CHECK + 3
+            normed_h5f.create_dsets(self.total_block_N,sample_point_n,normed_num_channels)
 
             for i,k_str in  enumerate(self.sorted_h5f):
                 normed_data_i,normed_label_i,raw_xyz_i = self.normalize_dset(k_str)
@@ -777,7 +827,77 @@ class Sorted_H5f():
                 normed_h5f.append_to_dset('label',normed_label_i)
                 normed_h5f.append_to_dset('raw_xyz',raw_xyz_i)
             normed_h5f.rm_invalid_data()
-            print('normalization finished: %d rows'%(i+1))
+            print('normalization finished: data shape: %s'%(str(normed_h5f.data_set.shape)) )
+
+    def merge_to_new_step(self,larger_stride,larger_step,more_actions_config=None):
+        '''merge blocks of sorted raw h5f to get new larger step
+        '''
+        base_file_name = self.file_name
+        tmp = base_file_name.rsplit('_stride_',1)[0]
+        new_part = '_stride_' + str(larger_stride[0])+ '_step_' + str(larger_step[0])
+     #   if larger_step[2] != larger_step[0]:
+     #       if larger_step[2]>0:
+     #           new_part += '_z' + str(larger_step[2])
+     #       else:
+     #           new_part += '_zall'
+
+        new_name = tmp + new_part + '.sh5'
+        print('new file: ',new_name)
+        if os.path.exists(new_name):
+            print('already exists, skip')
+            return
+        with  h5py.File(base_file_name,'r') as base_h5f:
+            with h5py.File(new_name,'w') as new_h5f:
+                new_sh5f = Sorted_H5f(new_h5f,new_name)
+                new_sh5f.copy_root_summaryinfo_from_another(base_h5f,'new_stride')
+                new_sh5f.set_step_stride(larger_step,larger_stride)
+
+                read_row_N = 0
+                rate_last = -10
+                print('%d rows and %d blocks to merge'%(self.total_row_N,self.total_block_N))
+                for dset_name in  base_h5f:
+                    block_i_base = int(dset_name)
+                    base_dset_i = base_h5f[dset_name]
+                    block_k_new_ls,i_xyz_new_ls = self.get_sub_block_ks(block_i_base,new_sh5f)
+
+                    read_row_N += base_dset_i.shape[0]
+                    rate = 100.0 * read_row_N / self.total_row_N
+                    if int(rate)%10 < 1 and rate-rate_last>5:
+                        rate_last = rate
+                        print(str(rate),'%   ','  dset_name = ',dset_name, '  new_k= ',block_k_new_ls,'   id= ',os.getpid())
+                        new_sh5f.sorted_h5f.flush()
+
+                    for block_k_new in block_k_new_ls:
+                        new_sh5f.append_to_dset(block_k_new,base_dset_i)
+                    #if rate > 5:
+                        #break
+                if read_row_N != self.total_row_N:
+                    print('ERROR!!!  total_row_N = %d, but only read %d'%( self.total_row_N,read_row_N))
+
+                total_block_N = 0
+                total_row_N = 0
+                for total_block_N,dn in enumerate(new_sh5f.sorted_h5f):
+                    total_row_N += new_sh5f.sorted_h5f[dn].shape[0]
+                total_block_N += 1
+                new_sh5f.set_root_attr('total_row_N',total_row_N)
+                new_sh5f.set_root_attr('total_block_N',total_block_N)
+                print('total_row_N = ',total_row_N)
+                print('total_block_N = ',total_block_N)
+                new_sh5f.sorted_h5f.flush()
+
+                #new_sh5f.check_xyz_scope()
+
+                if more_actions_config != None:
+                    actions = more_actions_config['actions']
+                    if 'obj_merged' in actions:
+                        new_sh5f.gen_file_obj(True)
+                        new_sh5f.gen_file_obj(False)
+                    if 'sample_merged' in actions:
+                        Is_gen_obj = 'obj_sampled_merged' in actions
+                        Is_gen_norm = 'norm_sampled_merged' in actions
+                        new_sh5f.file_sample(more_actions_config['sample_num'],more_actions_config['sample_method'],\
+                                            gen_norm=Is_gen_norm,gen_obj = Is_gen_obj)
+
 
 
 class Normed_H5f():
@@ -791,9 +911,25 @@ class Normed_H5f():
     # -----------------------------------------------------------------------------
     # CONSTANTS
     # -----------------------------------------------------------------------------
-    g_label2class = {0: 'unlabeled points', 1: 'man-made terrain', 2: 'natural terrain',\
+    g_label2classes = {}
+    g_label2classes['ETH'] = {0: 'unlabeled points', 1: 'man-made terrain', 2: 'natural terrain',\
                      3: 'high vegetation', 4: 'low vegetation', 5: 'buildings', \
                      6: 'hard scape', 7: 'scanning artefacts', 8: 'cars'}
+
+    g_label2classes['STANFORD_INDOOR3D'] = {0:'ceiling',
+                                1:'floor',
+                                2:'wall',
+                                3:'beam',
+                                4:'column',
+                                5:'window',
+                                6:'door',
+                                7:'table',
+                                8:'chair',
+                                9:'sofa',
+                                10:'bookcase',
+                                11:'board',
+                                12:'clutter'}
+    g_label2class = g_label2classes[DATASET_NAME]
     g_label2color = {0:	[0,0,0],
                      1:	[0,0,255],
                      2:	[0,255,255],
@@ -850,9 +986,12 @@ class Normed_H5f():
             label = 0
         return self.g_label2color[label]
 
-    def create_dsets(self,total_block_N,sample_num):
-        chunks_n = 8
-        num_channels  =10
+    def get_data_shape(self):
+        dset = self.h5f['data']
+        return dset.shape
+
+    def create_dsets(self,total_block_N,sample_num,num_channels):
+        chunks_n = 4
         data_set = self.h5f.create_dataset( 'data',shape=(total_block_N,sample_num,num_channels),\
                 maxshape=(None,sample_num,num_channels),dtype=np.float32,compression="gzip",\
                 chunks = (chunks_n,sample_num,num_channels)  )
@@ -882,26 +1021,55 @@ class Normed_H5f():
         self.raw_xyz_set = raw_xyz_set
         self.pred_label_set = pred_label_set
 
+    def create_areano_dset(self,total_block_N,sample_num):
+        chunks_n = 4
+        area_no_set = self.h5f.create_dataset( 'area_no',shape=(total_block_N,sample_num),\
+                maxshape=(None,sample_num),dtype=np.int16,compression="gzip",\
+                chunks = (chunks_n,sample_num)  )
+        area_no_set.attrs['valid_num'] = 0
 
     def append_to_dset(self,dset_name,data_i,vacant_size=0):
         dset = self.h5f[dset_name]
-        assert(dset.ndim == data_i.ndim+1), "in Normed_H5f.append_to_dset: data shape not match dataset"
-        for i in range(1,dset.ndim):
-            assert(dset.shape[i] == data_i.shape[i-1]), "in Normed_H5f.append_to_dset: data shape not match dataset"
         valid_num = dset.attrs['valid_num']
-        new_valid_num = valid_num + 1
+        if data_i.ndim == dset.ndim -1:
+            for i in range(1,dset.ndim):
+                assert(dset.shape[i] == data_i.shape[i-1]), "in Normed_H5f.append_to_dset: data shape not match dataset"
+            new_valid_num = valid_num + 1
+            #print('append 2d to 3d')
+        else:
+            assert(dset.shape[1:] == data_i.shape[1:]), "in Normed_H5f.append_to_dset: data shape not match dataset"
+            new_valid_num = valid_num + data_i.shape[0]
+            print('%s  %d -> %d'%(dset_name,valid_num,new_valid_num) )
+
         if new_valid_num > dset.shape[0]:
             dset.resize( (new_valid_num + vacant_size,)+dset.shape[1:] )
         dset[valid_num : new_valid_num,...] = data_i
         dset.attrs['valid_num'] = new_valid_num
+        self.h5f.flush()
 
-    def set_dset(self,dset_name,data_i,start_idx,end_idx):
+    def set_dset_value(self,dset_name,data_i,start_idx,end_idx):
         dset = self.h5f[dset_name]
         if dset.shape[0] < end_idx:
             dset.resize( (end_idx,) + dset.shape[1:] )
         dset[start_idx:end_idx,:] = data_i
         if dset.attrs['valid_num'] < end_idx:
             dset.attrs['valid_num'] = end_idx
+
+    def merge_file(self,another_file_name):
+        # merge all the data from another_file intto self
+        with h5py.File(another_file_name,'r') as f:
+            ano_normed_h5f = Normed_H5f(f,another_file_name)
+            for dset_name in ano_normed_h5f.h5f:
+                self.append_to_dset(dset_name,ano_normed_h5f.h5f[dset_name])
+                # set area no
+            if DATASET_NAME == 'STANFORD_INDOOR3D':
+                base_name = os.path.basename(another_file_name)
+                tmp = base_name.split('Area_')[1].split('_')[0]
+                area_no = int(tmp)
+
+                num_blocks,num_sample = ano_normed_h5f.h5f['label'].shape
+                area_data = np.ones((num_blocks,num_sample)) * area_no
+                self.append_to_dset('area_no',area_data)
 
     def rm_invalid_data(self):
         for dset_name_i in self.h5f:
@@ -966,7 +1134,6 @@ class SortSpace():
         IsMulti = False
         if not IsMulti:
             for fn in raw_file_list:
-                print('sort file: ',fn)
                 self.sort_to_blocks(fn,block_step_xyz)
         else:
             #pool = mp.Pool( max(mp.cpu_count()/2,1) )
@@ -993,12 +1160,12 @@ class SortSpace():
             tmp = int(tmp)
         fn = rm_file_name_midpart(file_name,'_intensity_rgb')
         fn = rm_file_name_midpart(fn,'_xyz')
-        blocked_file_name = os.path.splitext(fn)[0]+'_stride_'+str(tmp)+'_step_'+str(tmp)+'.h5'
+        blocked_file_name = os.path.splitext(fn)[0]+'_stride_'+str(tmp)+'_step_'+str(tmp)+'.sh5'
         with h5py.File(blocked_file_name,'w') as h5f_blocked:
             with h5py.File(file_name,'r') as h5_f:
                 self.raw_h5f = Raw_H5f(h5_f,file_name)
                 self.s_h5f = Sorted_H5f(h5f_blocked,blocked_file_name)
-                self.s_h5f.set_root_attr('elements',Sorted_H5f.raw_elements)
+
                 self.s_h5f.copy_root_geoinfo_from_raw( self.raw_h5f )
                 self.s_h5f.set_step_stride(block_step,block_step)
 
@@ -1007,31 +1174,25 @@ class SortSpace():
                 row_step = GLOBAL_PARA.h5_num_row_1M*8
                 sorted_buf_dic = {}
                 raw_row_N = self.raw_h5f.xyz_dset.shape[0]
+
                 for k in range(0,raw_row_N,row_step):
                     end = min(k+row_step,raw_row_N)
-                    raw_buf = np.zeros((end-k,9))
-                    #t0_k = time.time()
-                    #print('start read %d:%d'%(k,end))
-                    raw_buf[:,Sorted_H5f.raw_xyz_index] = self.raw_h5f.xyz_dset[k:end,:]
-                    raw_buf[:,Sorted_H5f.raw_color_indx] = self.raw_h5f.color_dset[k:end,:]
-                    raw_buf[:,Sorted_H5f.raw_label_index] = self.raw_h5f.label_dset[k:end,:]
-                    raw_buf[:,Sorted_H5f.raw_intensity_index] = self.raw_h5f.intensity_dset[k:end,:]
-                    if end < 16777215: # this is the largest int float32 can acurately present
-                        raw_buf[:,Sorted_H5f.raw_orgrowindex] = np.arange(k,end)
-                    else:
-                        raw_buf[:,Sorted_H5f.raw_orgrowindex] = -1
-                    #t1_k = time.time()
-                    #print('all read T=',time.time()-read_t0)
-
-                    #t2_0_k = time.time()
+                    _,data_name_list = self.raw_h5f.get_total_num_channels_name_list()
+                    raw_buf = np.zeros((end-k,self.s_h5f.total_num_channels))
+                    for dn in data_name_list:
+                        raw_buf[:,self.s_h5f.data_idxs[dn] ] = self.raw_h5f.raw_h5f[dn][k:end,:]
+                    if self.s_h5f.IS_CHECK:
+                        if end < 16777215: # this is the largest int float32 can acurately present
+                            org_row_index = np.arange(k,end)
+                        else:
+                            org_row_index = -1
+                        raw_buf[:,self.s_h5f.data_idxs['org_row_index'][0]] = org_row_index
 
                     sorted_buf_dic={}
                     self.sort_buf(raw_buf,k,sorted_buf_dic)
 
-                    #t2_1_k = time.time()
                     self.h5_write_buf(sorted_buf_dic)
 
-                    #t2_2_k = time.time()
                     if int(k/row_step) % 1 == 0:
                         print('%%%.1f  line[ %d:%d ] block_N = %d'%(100.0*end/self.raw_h5f.total_row_N, k,end,len(sorted_buf_dic)))
                          #print('line: [%d,%d] blocked   block_T=%f s, read_T=%f ms, cal_t = %f ms, write_t= %f ms'%\
@@ -1041,26 +1202,19 @@ class SortSpace():
                         print('break read at k= ',end)
                         break
 
-#                total_block_N = 0
-#                total_row_N = 0
-#                for dset_name_i in self.h5f_blocked:
-#                    total_block_N += 1
-#                    total_row_N += self.h5f_blocked[dset_name_i].shape[0]
-#                self.h5f_blocked.attrs['total_block_N'] = total_block_N
-#                self.h5f_blocked.attrs['total_row_N'] = total_row_N
-
                 total_row_N,total_block_N = self.s_h5f.add_total_row_block_N()
 
                 if total_row_N != self.raw_h5f.total_row_N:
                     print('ERROR: blocked total_row_N= %d, raw = %d'%(total_row_N,self.raw_h5f.total_row_N))
                 print('total_block_N = ',total_block_N)
 
-                check = self.s_h5f.check_equal_to_raw(h5_f) & self.s_h5f.check_xyz_scope()
-                print('overall check of equal and scope:')
-                if check:
-                    print('both passed')
-                else:
-                    print('somewhere check failed')
+                if self.s_h5f.IS_CHECK:
+                    check = self.s_h5f.check_equal_to_raw(self.raw_h5f) & self.s_h5f.check_xyz_scope()
+                    print('overall check of equal and scope:')
+                    if check:
+                        print('both passed')
+                    else:
+                        print('somewhere check failed')
                 #self.s_h5f.show_summary_info()
 
     def sort_buf(self,raw_buf,buf_start_k,sorted_buf_dic):
@@ -1195,7 +1349,6 @@ class Net_Provider():
         print('train:\n',train_data[0,0,:])
         print('eval:\n',eval_data[0,0,:])
         print('err=\n',train_data[0,0,:]-eval_data[0,0,:])
-        import pdb; pdb.set_trace()  # XXX BREAKPOINT
 
 
     def __exit__(self):
@@ -1227,7 +1380,7 @@ class Net_Provider():
             else:
                 end = self.norm_h5f_L[f_idx].label_set.shape[0]
             n = end-local_start_idx
-            self.norm_h5f_L[f_idx].set_dset('pred_label',\
+            self.norm_h5f_L[f_idx].set_dset_value('pred_label',\
                 pred_label[pred_start_idx:pred_start_idx+n,:],local_start_idx,end)
             pred_start_idx += n
         self.norm_h5f_L[f_idx].h5f.flush()
@@ -1346,19 +1499,18 @@ class MAIN_DATA_PREP():
         new_name = os.path.splitext(tmp)[0]  + new_part + '.h5'
         print('new file: ',new_name)
         print('id = ',os.getpid())
-        with  h5py.File(base_file_name,'r') as base_h5f:
-            with h5py.File(new_name,'w') as new_h5f:
+        with h5py.File(new_name,'w') as new_h5f:
                 base_sh5f = Sorted_H5f(base_h5f,base_file_name)
                 new_sh5f = Sorted_H5f(new_h5f,new_name)
-                new_sh5f.copy_root_summaryinfo_from_another(base_h5f,'new_stride')
+                new_sh5f.copy_root_summaryinfo_from_another(self.sorted_h5f,'new_stride')
                 new_sh5f.set_step_stride(larger_step,larger_stride)
 
                 read_row_N = 0
                 rate_last = -10
                 print('%d rows and %d blocks to merge'%(base_sh5f.total_row_N,base_sh5f.total_block_N))
-                for dset_name in  base_h5f:
+                for dset_name in  self.sorted_h5f:
                     block_i_base = int(dset_name)
-                    base_dset_i = base_h5f[dset_name]
+                    base_dset_i = self.sorted_h5f[dset_name]
                     block_k_new_ls,i_xyz_new_ls = base_sh5f.get_sub_block_ks(block_i_base,new_sh5f)
 
                     read_row_N += base_dset_i.shape[0]
@@ -1694,7 +1846,7 @@ def Do_gen_sorted_block_obj(file_list):
     for fn in file_list:
         with  h5py.File(fn,'r') as h5f:
             sorted_h5f = Sorted_H5f(h5f,fn)
-            sorted_h5f.generate_blocks_to_object(True)
+            sorted_h5f.gen_file_obj(True)
 
 def Do_gen_normed_obj(file_list):
     for fn in file_list:
@@ -1720,31 +1872,77 @@ def gen_file_list(folder,format='h5'):
             print(base_dir_file_name)
     print('all file list file write OK ')
 
-def Do_SortSpace():
-    file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_8_step_8, \
-                '*_4096.h5') )
 
 
-def gen_stanford_indoor3d_to_rawh5f():
+class Indoor3d_Process():
     '''
-    (1) source:  from "http://buildingparser.stanford.edu/dataset.html"
-    already collected to format: [x y z r g b label]
-    (2)
+    source:  from "http://buildingparser.stanford.edu/dataset.html"
+    Tihe work flow of processing stanford_indoor3d data:
+        (1) collectto each room to format: [x y z r g b label]. Done by Qi's code
+        (2) gen each room to Raw_H5f
+        (3) sort each room to Sorted_H5f with step = stride = 0.5
+        (4) merge each room to Sorted_H5f with step = 1 & stride = 0.5
+        (5) sample each block to NUM_POINT points and normalize each block
+        (6) merge all the rooms together, add area number as a new dataset
     '''
-    file_list = glob.glob( os.path.join( GLOBAL_PARA.stanford_indoor3d_collected_path,\
-                                        '*Area_6_pantry_1.npy' ) )
-    for fn in file_list:
-        h5_fn = os.path.splitext(fn)[0]+'.h5'
-        with h5py.File(h5_fn,'w') as h5f:
-            raw_h5f = Raw_H5f(h5f,h5_fn)
-            data = np.load(fn)
-            num_row = data.shape[0]
-            raw_h5f.set_num_default_row(num_row)
-            raw_h5f.append_to_dset('xyz',data[:,0:3])
-            raw_h5f.append_to_dset('color',data[:,3:6])
-            raw_h5f.append_to_dset('label',data[:,6:7])
-            raw_h5f.create_done()
 
+    @staticmethod
+    def gen_stanford_indoor3d_to_rawh5f():
+        file_list = glob.glob( os.path.join( GLOBAL_PARA.stanford_indoor3d_collected_path,\
+                                            '*.npy' ) )
+        for fn in file_list:
+            h5_fn = os.path.splitext(fn)[0]+'.h5'
+            with h5py.File(h5_fn,'w') as h5f:
+                raw_h5f = Raw_H5f(h5f,h5_fn)
+                data = np.load(fn)
+                num_row = data.shape[0]
+                raw_h5f.set_num_default_row(num_row)
+                raw_h5f.append_to_dset('xyz',data[:,0:3])
+                raw_h5f.append_to_dset('color',data[:,3:6])
+                raw_h5f.append_to_dset('label',data[:,6:7])
+                raw_h5f.create_done()
+
+    @staticmethod
+    def Do_SortSpace():
+        file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_rawh5, \
+                    '*.h5') )
+        block_step_xyz = [0.5,0.5,0.5]
+        SortSpace(file_list,block_step_xyz)
+    @staticmethod
+    def MergeSampleNorm():
+        file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_stride_0d5_step_0d5, \
+                    '*_stride_0.5_step_0.5.sh5') )
+        new_stride = [0.5,0.5,-1]
+        new_step = [1,1,-1]
+        more_actions_config = {}
+        more_actions_config['actions'] = ['merge','sample_merged','norm_sampled_merged']
+        #more_actions_config['actions'] = ['merge','obj_merged','sample_merged','obj_sampled_merged']
+        more_actions_config['sample_num'] = 4096
+        more_actions_config['sample_method'] = 'random'
+        for fn in file_list:
+            with h5py.File(fn,'r') as f:
+                sorted_h5f = Sorted_H5f(f,fn)
+                sorted_h5f.merge_to_new_step(new_stride,new_step,more_actions_config)
+    @staticmethod
+    def MergeAllRooms():
+        # and add area num dataset
+        path = GLOBAL_PARA.stanford_indoor3d_normed_stride_0d5_step_1_4096
+        file_list = glob.glob( os.path.join(path, \
+                                '*.nh5' ) )
+        postfix = os.path.basename(file_list[0]).split('_stride_')[1]
+        root_path = os.path.dirname(path)
+        merged_fn = os.path.join(root_path,'stanford_indoor3d_whole_stride_'+postfix)
+        print('merged file name: %s'%(merged_fn))
+        with h5py.File(merged_fn,'w') as f:
+            merged_normed_h5f = Normed_H5f(f,merged_fn)
+            for k,fn in enumerate(file_list):
+                if k==0:
+                    with h5py.File(fn,'r') as f0:
+                        normed_h5f_0 = Normed_H5f(f0,fn)
+                        data_shape = normed_h5f_0.get_data_shape()
+                        merged_normed_h5f.create_dsets(0,data_shape[1],data_shape[2])
+                        merged_normed_h5f.create_areano_dset(0,data_shape[1])
+                merged_normed_h5f.merge_file(fn)
 
 
 
@@ -1765,8 +1963,8 @@ def main(file_list):
 if __name__ == '__main__':
  #   file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_1_step_1, \
  #               '*_m5.h5') )
-    file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_8_step_8, \
-                '*_4096.h5') )
+    #file_list = glob.glob( os.path.join(GLOBAL_PARA.ETH_A_stride_8_step_8, \
+                #'*_4096.h5') )
    # file_list = glob.glob( os.path.join(GLOBAL_PARA.seg_train_path, \
    #             '*.h5') )
     #main(file_list)
@@ -1782,6 +1980,8 @@ if __name__ == '__main__':
     #Do_gen_gt_pred_objs(file_list)
     #Normed_H5f.show_all_colors()
     #Gen_raw_label_color_obj()
-    gen_stanford_indoor3d_to_rawh5f()
+    #Indoor3d_Process.gen_stanford_indoor3d_to_rawh5f()
+    #Indoor3d_Process.MergeSampleNorm()
+    Indoor3d_Process.MergeAllRooms()
     T = time.time() - START_T
     print('exit main, T = ',T)
