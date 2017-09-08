@@ -1951,7 +1951,6 @@ class Indoor3d_Process():
         (3) sort each room to Sorted_H5f with step = stride = 0.5
         (4) merge each room to Sorted_H5f with step = 1 & stride = 0.5
         (5) sample each block to NUM_POINT points and normalize each block
-        (6) merge all the rooms belong to same area together, add area number as a new dataset
     '''
 
     @staticmethod
