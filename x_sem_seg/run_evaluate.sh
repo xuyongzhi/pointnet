@@ -1,9 +1,17 @@
 #!/bin/bash
 
-LOG_DIR="log6"
+LOG_DIR="log6_0d01_2048"
 echo "LOG_DIR=$LOG_DIR"
-## data/stanford_indoor3d/Area_6_pantry_1.npy
-python batch_inference.py --model_path $LOG_DIR/model.ckpt --dump_dir $LOG_DIR/dump_eval --output_filelist $LOG_DIR/output_filelist_eva.txt --room_data_filelist meta/area6_data_label_1.txt --visu
+
+python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 8 --num_point 2048 --eval_data_rate 1   --all_fn_glob stanford_indoor3d_normedh5_stride_0.5_step_1_4096/Area_6_hallway_4     --visu Area_6_hallway_4
+
+
+
+
+
+
+
+
 
 #python batch_inference.py --model_path log6/model.ckpt --dump_dir log6/dump_eva_spl --output_filelist log6/output_filelist_eva_spl.txt --room_data_filelist meta/area6_data_label_split.txt --visu
 

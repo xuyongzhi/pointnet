@@ -1,1 +1,1 @@
-python train.py --log_dir log6 --test_area 6 --max_epoch 2 --batch_size 2 --num_point 4096
+python train_sorted.py --log_dir log6_0d01_2048  --eval_area 6 --max_epoch 2 --batch_size 8 --num_point 2048   --all_fn_glob stanford_indoor3d_normedh5_stride_0.5_step_1_4096/*    --train_data_rate 0.002 --eval_data_rate 0.002

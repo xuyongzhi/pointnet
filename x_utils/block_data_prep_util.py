@@ -911,26 +911,38 @@ class Normed_H5f():
     # -----------------------------------------------------------------------------
     # CONSTANTS
     # -----------------------------------------------------------------------------
-    g_label2classes = {}
-    g_label2classes['ETH'] = {0: 'unlabeled points', 1: 'man-made terrain', 2: 'natural terrain',\
+    g_label2class_dic = {}
+    g_label2class_dic['ETH'] = {0: 'unlabeled points', 1: 'man-made terrain', 2: 'natural terrain',\
                      3: 'high vegetation', 4: 'low vegetation', 5: 'buildings', \
                      6: 'hard scape', 7: 'scanning artefacts', 8: 'cars'}
 
-    g_label2classes['STANFORD_INDOOR3D'] = {0:'ceiling',
-                                1:'floor',
-                                2:'wall',
-                                3:'beam',
-                                4:'column',
-                                5:'window',
-                                6:'door',
-                                7:'table',
-                                8:'chair',
-                                9:'sofa',
-                                10:'bookcase',
-                                11:'board',
-                                12:'clutter'}
-    g_label2class = g_label2classes[DATASET_NAME]
-    g_label2color = {0:	[0,0,0],
+    g_label2class_dic['STANFORD_INDOOR3D'] = \
+                    {0:'ceiling',
+                    1:'floor',
+                    2:'wall',
+                    3:'beam',
+                    4:'column',
+                    5:'window',
+                    6:'door',
+                    7:'table',
+                    8:'chair',
+                    9:'sofa',
+                    10:'bookcase',
+                    11:'board',
+                    12:'clutter'}
+    g_label2color_dic = {}
+    g_label2color_dic['ETH'] = \
+                    {0:	[0,0,0],
+                     1:	[0,0,255],
+                     2:	[0,255,255],
+                     3: [255,255,0],
+                     4: [255,0,255],
+                     6: [0,255,0],
+                     7: [170,120,200],
+                     8: [255,0,0],
+                     5:[10,200,100]}
+    g_label2color_dic['STANFORD_INDOOR3D'] = \
+                    {0:	[0,0,0],
                      1:	[0,0,255],
                      2:	[0,255,255],
                      3: [255,255,0],
@@ -944,6 +956,10 @@ class Normed_H5f():
                      11:[200,200,200],
                      12:[50,50,50],
                      13:[200,200,100]}
+    g_label2class = g_label2class_dic[DATASET_NAME]
+    g_label2color = g_label2color_dic[DATASET_NAME]
+
+
     g_class2label = {cls:label for label,cls in g_label2class.iteritems()}
     g_class2color = {}
     for i in g_label2class:
@@ -982,8 +998,7 @@ class Normed_H5f():
             img.show()
 
     def label2color(self,label):
-        if label<0 or label > len(self.g_label2color)-1:
-            label = 0
+        assert( label in self.g_label2color )
         return self.g_label2color[label]
 
     def get_data_shape(self):
@@ -1051,7 +1066,9 @@ class Normed_H5f():
         dset = self.h5f[dset_name]
         if dset.shape[0] < end_idx:
             dset.resize( (end_idx,) + dset.shape[1:] )
-        dset[start_idx:end_idx,:] = data_i
+        if data_i.shape[1] < dset.shape[1]:
+            dset[start_idx:end_idx,data_i.shape[1]:] = -1
+        dset[start_idx:end_idx,0:data_i.shape[1]] = data_i
         if dset.attrs['valid_num'] < end_idx:
             dset.attrs['valid_num'] = end_idx
 
@@ -1080,32 +1097,36 @@ class Normed_H5f():
                 dset_i.resize( (valid_n,)+dset_i.shape[1:] )
 
 
-    def gen_gt_pred_obj(self):
+    def gen_gt_pred_obj(self,out_path=None):
         base_fn = os.path.basename(self.file_name)
         base_fn = os.path.splitext(base_fn)[0]
         folder_path = os.path.dirname(self.file_name)
-        obj_folder = os.path.join(folder_path,base_fn)
+        if out_path == None:
+            obj_folder = os.path.join(folder_path,base_fn)
+        else:
+            obj_folder = os.path.join(out_path,base_fn)
         if not os.path.exists(obj_folder):
             os.makedirs(obj_folder)
 
-        if self.pred_label_set.shape[0]==self.label_set.shape[0]:
-            IsGenPred = True
-        else:
-            IsGenPred = False
         gt_obj_fn = os.path.join(obj_folder,'gt.obj')
         pred_obj_fn = os.path.join(obj_folder,'pred.obj')
         dif_obj_fn = os.path.join(obj_folder,'dif.obj')
+        correct_obj_fn = os.path.join(obj_folder,'correct.obj')
+        correct_num = 0
+        pred_num = 0
+        file_size = self.raw_xyz_set.shape[0] * self.raw_xyz_set.shape[1]
         with open(gt_obj_fn,'w') as gt_f:
-            with open(pred_obj_fn,'w') as pred_f:
-              with open(dif_obj_fn,'w') as dif_f:
-                print('gen gt obj file: ',gt_obj_fn)
-                print('gen pred obj file: ',pred_obj_fn)
-                print('gen dif obj file: ',pred_obj_fn)
+          with open(pred_obj_fn,'w') as pred_f:
+            with open(dif_obj_fn,'w') as dif_f:
+              with open(correct_obj_fn,'w') as correct_f:
                 for j in range(0,self.raw_xyz_set.shape[0]):
                     xyz_block = self.raw_xyz_set[j,:]
                     label_gt = self.label_set[j,:]
-                    if IsGenPred:
+                    if j < self.pred_label_set.shape[0]:
+                        IsGenPred = True
                         label_pred = self.pred_label_set[j,:]
+                    else:
+                        IsGenPred = False
                     for i in range(xyz_block.shape[0]):
                         color_gt = self.label2color( label_gt[i] )
                         str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,:] ]) + ' \t'
@@ -1113,14 +1134,22 @@ class Normed_H5f():
                         str_gt = str_xyz + str_color_gt
                         gt_f.write( str_gt )
 
-                        if IsGenPred:
+                        if IsGenPred and label_pred[i] in self.g_label2color:
                             color_pred = self.label2color( label_pred[i] )
                             str_color_pred = ' '.join( ['%d'%(d) for d in  color_pred]) + '\n'
                             str_pred = str_xyz + str_color_pred
                             pred_f.write( str_pred )
-
                             if label_gt[i] != label_pred[i]:
                                 dif_f.write(str_pred)
+                            else:
+                                correct_f.write(str_pred)
+                                correct_num += 1
+                            pred_num += 1
+
+                print('gen gt obj file (%d): \n%s'%(file_size,gt_obj_fn) )
+                print('gen pred obj file (%d,%f): \n%s '%(pred_num,1.0*pred_num/file_size,pred_obj_fn) )
+                print('gen correct obj file (%d,%f),: \n%s '%(correct_num,1.0*correct_num/pred_num,correct_obj_fn) )
+                print('gen dif obj file: ',pred_obj_fn)
 
 
 class SortSpace():
@@ -1284,14 +1313,18 @@ class Net_Provider():
     # normed_h5f['data']: [blocks*block_num_point*num_channel],like [1000*4096*9]
     # one batch would contain sevel(batch_size) blocks,this will be set out side
     # provider with train_start_idx and test_start_idx
-    def __init__(self,train_file_list,eval_file_list,NUM_POINT_OUT,only_evaluate,\
-                 no_color_1norm,no_intensity_1norm,\
+
+
+    def __init__(self,all_file_list,only_evaluate,eval_fn_glob,\
+                 NUM_POINT_OUT=None,no_color_1norm = False,no_intensity_1norm = True,\
                  train_num_block_rate=1,eval_num_block_rate=1 ):
+        train_file_list,eval_file_list = self.split_train_eval_file_list\
+                            (all_file_list,only_evaluate,eval_fn_glob)
         self.no_color_1norm = no_color_1norm
         self.no_intensity_1norm = no_intensity_1norm
         self.NUM_POINT_OUT = NUM_POINT_OUT
         if only_evaluate:
-            open_type = 'a' # need to wrie pred labels
+            open_type = 'a' # need to write pred labels
         else:
             open_type = 'r'
         train_file_N = len(train_file_list)
@@ -1322,17 +1355,40 @@ class Net_Provider():
         self.eval_num_blocks = self.g_block_idxs[-1,1] - self.train_num_blocks
 
         # use only part of the data to test code:
-        # train: use the front part
-        self.train_num_blocks = int( self.train_num_blocks * train_num_block_rate)
-        new_eval_num_blocks = int( self.eval_num_blocks * eval_num_block_rate)
-        # eval:use the back part, so train_file_list and eval_file_list can be
-        # the same
-        self.eval_global_start_idx += self.eval_num_blocks - new_eval_num_blocks
-        self.eval_num_blocks = new_eval_num_blocks
+        if train_num_block_rate!=1 or eval_num_block_rate!=1:
+            self.get_data_label_shape()
+            print('whole train data shape: %s'%(str(self.train_data_shape)))
+            print('whole eval data shape: %s'%(str(self.eval_data_shape)))
+            # train: use the front part
+            self.train_num_blocks = int( self.train_num_blocks * train_num_block_rate )
+            if not only_evaluate:
+                self.train_num_blocks = max(self.train_num_blocks,2)
+            new_eval_num_blocks = int( max(2,self.eval_num_blocks * eval_num_block_rate) )
+            # eval:use the back part, so train_file_list and eval_file_list can be
+            # the same
+            self.eval_global_start_idx += self.eval_num_blocks - new_eval_num_blocks
+            self.eval_num_blocks = new_eval_num_blocks
 
         self.get_data_label_shape()
         #self.test_tmp()
 
+    def split_train_eval_file_list(self,all_file_list,only_evaluate,eval_fn_glob=None):
+        if only_evaluate:
+            train_file_list = []
+            eval_file_list = all_file_list
+        else:
+            if eval_fn_glob == None:
+                eval_fn_glob = 'Area_6'
+            train_file_list = []
+            eval_file_list = []
+            for fn in all_file_list:
+                if fn.find(eval_fn_glob) > 0:
+                    eval_file_list.append(fn)
+                else:
+                    train_file_list.append(fn)
+        print('train file list = %s\n\n'%(train_file_list))
+        print('eval file list = %s\n\n'%(eval_file_list))
+        return train_file_list,eval_file_list
     def get_data_label_shape(self):
         data_batches,label_batches = self.get_train_batch(0,1)
         self.train_data_shape = list(data_batches.shape)
@@ -1376,12 +1432,16 @@ class Net_Provider():
         pred_start_idx = 0
         for f_idx in range(start_file_idx,end_file_idx+1):
             if f_idx == start_file_idx:
+                start = local_start_idx
+            else:
+                start = 0
+            if f_idx == end_file_idx:
                 end = local_end_idx
             else:
                 end = self.norm_h5f_L[f_idx].label_set.shape[0]
-            n = end-local_start_idx
+            n = end-start
             self.norm_h5f_L[f_idx].set_dset_value('pred_label',\
-                pred_label[pred_start_idx:pred_start_idx+n,:],local_start_idx,end)
+                pred_label[pred_start_idx:pred_start_idx+n,:],start,end)
             pred_start_idx += n
         self.norm_h5f_L[f_idx].h5f.flush()
 
@@ -1394,11 +1454,16 @@ class Net_Provider():
         label_ls = []
         for f_idx in range(start_file_idx,end_file_idx+1):
             if f_idx == start_file_idx:
+                start = local_start_idx
+            else:
+                start = 0
+            if f_idx == end_file_idx:
                 end = local_end_idx
             else:
                 end = self.norm_h5f_L[f_idx].label_set.shape[0]
-            data_i = self.norm_h5f_L[f_idx].data_set[local_start_idx:end,:,:]
-            label_i = self.norm_h5f_L[f_idx].label_set[local_start_idx:end,:]
+
+            data_i = self.norm_h5f_L[f_idx].data_set[start:end,:,:]
+            label_i = self.norm_h5f_L[f_idx].label_set[start:end,:]
             data_ls.append(data_i)
             label_ls.append(label_i)
         data_batches = np.concatenate(data_ls,0)
@@ -1417,6 +1482,8 @@ class Net_Provider():
 
     def sample(self,data_batches,label_batches,NUM_POINT_OUT):
         NUM_POINT_IN = data_batches.shape[1]
+        if NUM_POINT_OUT == None:
+            NUM_POINT_OUT = NUM_POINT_IN
         if NUM_POINT_IN != NUM_POINT_OUT:
             sample_choice = GLOBAL_PARA.sample(NUM_POINT_IN,NUM_POINT_OUT,'random')
             data_batches = data_batches[:,sample_choice,...]
@@ -1447,9 +1514,10 @@ class Net_Provider():
         g_end_batch_idx = eval_end_batch_idx + self.eval_global_start_idx
         return self.get_global_batch(g_start_batch_idx,g_end_batch_idx)
 
-    def gen_gt_pred_objs(self):
-        for norm_h5f in self.norm_h5f_L:
-            norm_h5f.gen_gt_pred_obj(  )
+    def gen_gt_pred_objs(self,visu_fn_glob='The glob for file to be visualized',obj_dump_dir=None):
+        for k,norm_h5f in enumerate(self.norm_h5f_L):
+            if norm_h5f.file_name.find(visu_fn_glob) > 0:
+                norm_h5f.gen_gt_pred_obj( obj_dump_dir )
 
 
 #-------------------------------------------------------------------------------
@@ -1883,7 +1951,7 @@ class Indoor3d_Process():
         (3) sort each room to Sorted_H5f with step = stride = 0.5
         (4) merge each room to Sorted_H5f with step = 1 & stride = 0.5
         (5) sample each block to NUM_POINT points and normalize each block
-        (6) merge all the rooms together, add area number as a new dataset
+        (6) merge all the rooms belong to same area together, add area number as a new dataset
     '''
 
     @staticmethod
@@ -1924,25 +1992,28 @@ class Indoor3d_Process():
                 sorted_h5f = Sorted_H5f(f,fn)
                 sorted_h5f.merge_to_new_step(new_stride,new_step,more_actions_config)
     @staticmethod
-    def MergeAllRooms():
+    def MergeAreaRooms():
         # and add area num dataset
-        path = GLOBAL_PARA.stanford_indoor3d_normed_stride_0d5_step_1_4096
-        file_list = glob.glob( os.path.join(path, \
-                                '*.nh5' ) )
-        postfix = os.path.basename(file_list[0]).split('_stride_')[1]
-        root_path = os.path.dirname(path)
-        merged_fn = os.path.join(root_path,'stanford_indoor3d_whole_stride_'+postfix)
-        print('merged file name: %s'%(merged_fn))
-        with h5py.File(merged_fn,'w') as f:
-            merged_normed_h5f = Normed_H5f(f,merged_fn)
-            for k,fn in enumerate(file_list):
-                if k==0:
-                    with h5py.File(fn,'r') as f0:
-                        normed_h5f_0 = Normed_H5f(f0,fn)
-                        data_shape = normed_h5f_0.get_data_shape()
-                        merged_normed_h5f.create_dsets(0,data_shape[1],data_shape[2])
-                        merged_normed_h5f.create_areano_dset(0,data_shape[1])
-                merged_normed_h5f.merge_file(fn)
+        for area_no in range(1,7):
+            area_str = 'Area_'+str(area_no)
+            path = GLOBAL_PARA.stanford_indoor3d_normed_stride_0d5_step_1_4096
+            file_list = glob.glob( os.path.join(path, \
+                                    area_str+'*.nh5' ) )
+            print('file num = %d'%(len(file_list)))
+            postfix = os.path.basename(file_list[0]).split('_stride_')[1]
+            root_path = os.path.dirname(path)
+            merged_fn = os.path.join(root_path,area_str+'_stride_'+postfix)
+            print('merged file name: %s'%(merged_fn))
+            with h5py.File(merged_fn,'w') as f:
+                merged_normed_h5f = Normed_H5f(f,merged_fn)
+                for k,fn in enumerate(file_list):
+                    if k==0:
+                        with h5py.File(fn,'r') as f0:
+                            normed_h5f_0 = Normed_H5f(f0,fn)
+                            data_shape = normed_h5f_0.get_data_shape()
+                            merged_normed_h5f.create_dsets(0,data_shape[1],data_shape[2])
+                            merged_normed_h5f.create_areano_dset(0,data_shape[1])
+                    merged_normed_h5f.merge_file(fn)
 
 
 
@@ -1982,6 +2053,6 @@ if __name__ == '__main__':
     #Gen_raw_label_color_obj()
     #Indoor3d_Process.gen_stanford_indoor3d_to_rawh5f()
     #Indoor3d_Process.MergeSampleNorm()
-    Indoor3d_Process.MergeAllRooms()
+    #Indoor3d_Process.MergeAreaRooms()
     T = time.time() - START_T
     print('exit main, T = ',T)
