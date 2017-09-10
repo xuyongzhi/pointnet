@@ -1386,8 +1386,9 @@ class Net_Provider():
                     eval_file_list.append(fn)
                 else:
                     train_file_list.append(fn)
-        print('train file list = %s\n\n'%(train_file_list))
-        print('eval file list = %s\n\n'%(eval_file_list))
+        log_str = '\ntrain file list (n=%d) = \n%s\n\n'%(len(train_file_list),train_file_list[-2:])
+        log_str += 'eval file list (n=%d) = \n%s\n\n'%(len(eval_file_list),eval_file_list[-2:])
+        self.file_list_logstr = log_str
         return train_file_list,eval_file_list
     def get_data_label_shape(self):
         data_batches,label_batches = self.get_train_batch(0,1)

@@ -116,7 +116,7 @@ def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
     LOG_FOUT.flush()
     print(out_str)
-
+log_string(net_provider.file_list_logstr)
 
 def get_learning_rate(batch):
     learning_rate = tf.train.exponential_decay(
@@ -230,8 +230,8 @@ def train_one_epoch(sess, ops, train_writer,epoch):
     #current_data, current_label, _ = provider.shuffle_data(train_data[:,0:NUM_POINT,:], train_label[:,0:NUM_POINT])
 
     train_num_blocks = net_provider.train_num_blocks
-    num_batches = train_num_blocks // BATCH_SIZE
-    #num_batches = int(math.ceil(1.0*train_num_blocks/BATCH_SIZE))
+    #num_batches = train_num_blocks // BATCH_SIZE
+    num_batches = int(math.ceil(1.0*train_num_blocks/BATCH_SIZE))
 
     total_correct = 0
     total_seen = 0
@@ -246,15 +246,18 @@ def train_one_epoch(sess, ops, train_writer,epoch):
     shuffled_batch_idxs = np.arange(num_batches)
     np.random.shuffle(shuffled_batch_idxs)
     for batch_idx,batch_idx_shuffled in enumerate(shuffled_batch_idxs):
-        #if batch_idx % 100 == 0:
-            #print('Current batch/total batch num: %d/%d'%(batch_idx,num_batches))
         start_idx = batch_idx_shuffled * BATCH_SIZE
-        end_idx = min((batch_idx_shuffled+1) * BATCH_SIZE,train_num_blocks)
+        end_idx = (batch_idx_shuffled+1) * BATCH_SIZE
+        if end_idx > train_num_blocks:
+            tmp = end_idx - train_num_blocks
+            start_idx = max(0,start_idx-tmp)
+            end_idx = train_num_blocks
 
-        #print('train start = %d, end=%d'%(start_idx,end_idx)) # tmp
         batch_data,batch_label = net_provider.get_train_batch(start_idx,end_idx)
-        #print('data = \n',batch_data[0,10,:])
-        #print('label = \n',batch_label[0:2,:])
+
+        if end_idx - start_idx < BATCH_SIZE:
+            batch_data = np.resize(batch_data,( (BATCH_SIZE,)+batch_data.shape[1:]) )
+            batch_label = np.resize(batch_label,( (BATCH_SIZE,)+batch_label.shape[1:]) )
 
         feed_dict = {ops['pointclouds_pl']: batch_data,
                      ops['labels_pl']:      batch_label,
@@ -282,15 +285,15 @@ def eval_one_epoch(sess, ops, test_writer):
     total_correct = 0
     total_seen = 0
     loss_sum = 0
-    batch_idx = 0
+    batch_idx = -1
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
 
     log_string('----')
 
     eval_num_blocks = net_provider.eval_num_blocks
-    #num_batches = int(math.ceil( 1.0 * eval_num_blocks / BATCH_SIZE ))
-    num_batches = eval_num_blocks // BATCH_SIZE
+    num_batches = int(math.ceil( 1.0 * eval_num_blocks / BATCH_SIZE ))
+    #num_batches = eval_num_blocks // BATCH_SIZE
 
     def log_eval(batch_idx):
         log_string('\nbatch %d  eval \tmean loss: %f  \taccuracy: %f' % \
@@ -302,9 +305,21 @@ def eval_one_epoch(sess, ops, test_writer):
 
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
-        end_idx = min( (batch_idx+1) * BATCH_SIZE, eval_num_blocks )
+        end_idx = (batch_idx+1) * BATCH_SIZE
+        if end_idx > eval_num_blocks:
+            tmp = end_idx - eval_num_blocks
+            start_idx -= tmp
+            end_idx = eval_num_blocks
+            if start_idx < 0:
+                start_idx = 0
+                #log_string('BATCH SIZE is too large, eval data is not enough for one train.')
+                #continue
 
         batch_data,batch_label = net_provider.get_eval_batch(start_idx,end_idx)
+
+        if end_idx - start_idx < BATCH_SIZE:
+            batch_data = np.resize(batch_data,( (BATCH_SIZE,)+batch_data.shape[1:]) )
+            batch_label = np.resize(batch_label,( (BATCH_SIZE,)+batch_label.shape[1:]) )
 
         feed_dict = {ops['pointclouds_pl']: batch_data,
                      ops['labels_pl']:      batch_label,
@@ -320,8 +335,6 @@ def eval_one_epoch(sess, ops, test_writer):
         if test_writer != None:
             test_writer.add_summary(summary, step)
         correct = np.sum(pred_val == batch_label)
-        #accuracy = float(correct) / (BATCH_SIZE*NUM_POINT)
-        #print('accu = ',accuracy)
         total_correct += correct
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum += (loss_val*BATCH_SIZE)
@@ -336,8 +349,8 @@ def eval_one_epoch(sess, ops, test_writer):
             if batch_idx%100==0:
                 log_eval(batch_idx)
                 log_string('write pred_label into h5f [%d,%d]'%(start_idx,end_idx))
-
-    log_eval(batch_idx)
+    if batch_idx>=0:
+        log_eval(batch_idx)
     if FLAGS.only_evaluate:
         obj_dump_dir = os.path.join(FLAGS.log_dir,'obj_dump')
         net_provider.gen_gt_pred_objs(FLAGS.visu,obj_dump_dir)
