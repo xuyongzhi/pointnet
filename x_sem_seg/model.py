@@ -23,9 +23,9 @@ def get_model(point_cloud, is_training, bn_decay=None):
 
     input_image = tf.expand_dims(point_cloud, -1)
     # CONV
-    # [b,4096,1,63]
+    # [b,4096,1,64]
     in_channels_num = input_image.get_shape()[2].value
-    net = tf_util.conv2d(input_image, 63, [1,in_channels_num], padding='VALID', stride=[1,1],
+    net = tf_util.conv2d(input_image, 64, [1,in_channels_num], padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training, scope='conv1', bn_decay=bn_decay)
     # [b,4096,1,64]
     net = tf_util.conv2d(net, 64, [1,1], padding='VALID', stride=[1,1],
