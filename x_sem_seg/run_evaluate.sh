@@ -1,9 +1,9 @@
 #!/bin/bash
 
-LOG_DIR="log6_0d01_2048"
+LOG_DIR="log5_4096_bs32"
 echo "LOG_DIR=$LOG_DIR"
 
-python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 8 --num_point 2048 --eval_data_rate 1   --all_fn_glob stanford_indoor3d_normedh5_stride_0.5_step_1_4096/Area_6_hallway_4     --visu Area_6_hallway_4
+python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 4 --num_point 4096 --eval_data_rate 1   --all_fn_glob stanford_indoor3d_normedh5_stride_0.5_step_1_4096/Area_5_conferenceRoom_1     --visu Area_5_conferenceRoom_1
 
 
 
