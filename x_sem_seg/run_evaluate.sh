@@ -4,7 +4,7 @@
 LOG_DIR="LOG_QI/log1"
 echo "LOG_DIR=$LOG_DIR"
 
-python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 4 --num_point 4096 --eval_data_rate 1   --all_fn_glob stanford_indoor3d_normedh5_stride_0.5_step_1_4096/Area_6_office_22     --visu Area_6_office_22
+#python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 4 --num_point 4096 --eval_data_rate 1   --all_fn_glob stanford_indoor3d_normedh5_stride_0.5_step_1_4096/Area_6_office_22     --visu Area_6_office_22
 
 
 
@@ -14,7 +14,7 @@ python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 4 --num_
 
 
 
-#python batch_inference.py --model_path  $LOG_DIR/model.ckpt --dump_dir  $LOG_DIR/dump_eva_spl --output_filelist $LOG_DIR/output_filelist_eva_1.txt --room_data_filelist meta/area6_data_label_1.txt --visu
+python batch_inference.py --model_path  $LOG_DIR/model.ckpt --dump_dir  $LOG_DIR/dump_eva_spl --output_filelist $LOG_DIR/output_filelist_eva_1.txt --room_data_filelist meta/area6_data_label_1.txt --visu
 
 #python batch_inference.py --model_path log6/model.ckpt --dump_dir log6/split_dump --output_filelist log6/split_output_filelist.txt --room_data_filelist meta/area6_data_split.txt --visu
 
