@@ -78,7 +78,6 @@ def evaluate():
     config.gpu_options.allow_growth = True
     config.allow_soft_placement = True
     config.log_device_placement = True
-    tf.reset_default_graph()
     sess = tf.Session(config=config)
 
     # Restore variables from disk.
@@ -196,6 +195,7 @@ def eval_one_epoch(sess, ops, room_path, out_data_label_filename, out_gt_label_f
 
 
 if __name__=='__main__':
+    tf.reset_default_graph()
     with tf.Graph().as_default():
         evaluate()
     LOG_FOUT.close()
