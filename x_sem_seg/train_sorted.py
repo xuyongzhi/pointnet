@@ -213,7 +213,7 @@ def train():
             else:
                 saver.restore(sess,MODEL_PATH)
                 log_string('restored model from: \n\t%s'%MODEL_PATH)
-            eval_one_epoch(sess, ops, test_writer)
+            eval_one_epoch(sess, ops, test_writer,epoch)
 
             # Save the variables to disk.
             if (not FLAGS.only_evaluate) and (epoch % 10 == 0 or epoch == MAX_EPOCH-1):
@@ -240,8 +240,8 @@ def train_one_epoch(sess, ops, train_writer,epoch):
 
     print('total batch num = ',num_batches)
     def log_train():
-        log_string('epoch %d batch %d \ttrain \tmean loss: %f   \taccuracy: %f' % \
-                   (epoch,batch_idx,loss_sum / float(batch_idx+1),total_correct / float(total_seen)  ))
+        log_string('epoch %d batch %d/%d \ttrain \tmean loss: %f   \taccuracy: %f' % \
+                   (epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),total_correct / float(total_seen)  ))
 
     shuffled_batch_idxs = np.arange(num_batches)
     np.random.shuffle(shuffled_batch_idxs)
@@ -279,7 +279,7 @@ def train_one_epoch(sess, ops, train_writer,epoch):
     log_train()
 
 
-def eval_one_epoch(sess, ops, test_writer):
+def eval_one_epoch(sess, ops, test_writer,epoch):
     """ ops: dict mapping from string to tf ops """
     is_training = False
     total_correct = 0
@@ -295,12 +295,15 @@ def eval_one_epoch(sess, ops, test_writer):
     num_batches = int(math.ceil( 1.0 * eval_num_blocks / BATCH_SIZE ))
     #num_batches = eval_num_blocks // BATCH_SIZE
 
-    def log_eval(batch_idx):
-        log_string('\nbatch %d  eval \tmean loss: %f  \taccuracy: %f' % \
-                   ( batch_idx,loss_sum / float(batch_idx+1),\
+    def log_eval():
+        log_string('epoch %d batch %d/%d \teval \tmean loss: %f   \taccuracy: %f' % \
+                   ( epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),\
                     total_correct / float(total_seen) ))
         class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
-        log_string('eval class accuracies: %s' % (np.array2string(class_accuracies,formatter={'float':lambda x: "%f"%x})))
+        log_string('eval ave class accuracy: %f'%(class_accuracies.mean()))
+        cls_acc_str = '  '.join([ '%s:%f'%(Normed_H5f.g_label2class[l],class_accuracies[l]) for l in range(len(class_accuracies)) ])
+        log_string('eval  %s'%(cls_acc_str))
+        #log_string('eval class accuracies: %s' % (np.array2string(class_accuracies,formatter={'float':lambda x: "%f"%x})))
 
 
     for batch_idx in range(num_batches):
@@ -326,6 +329,7 @@ def eval_one_epoch(sess, ops, test_writer):
                      ops['is_training_pl']: is_training}
         summary, step, loss_val, pred_val = sess.run([ops['merged'], ops['step'], ops['loss'], ops['pred']],
                                       feed_dict=feed_dict)
+        #print('loss_val = ',loss_val)
 
         if FLAGS.no_clutter:
             pred_val = np.argmax(pred_val[:,:,0:12], 2) # BxN
@@ -346,11 +350,11 @@ def eval_one_epoch(sess, ops, test_writer):
 
         if FLAGS.only_evaluate:
             net_provider.set_pred_label_batch(pred_val,start_idx,end_idx)
-            if batch_idx%100==0:
-                log_eval(batch_idx)
+            if batch_idx%101==0:
+                log_eval()
                 log_string('write pred_label into h5f [%d,%d]'%(start_idx,end_idx))
     if batch_idx>=0:
-        log_eval(batch_idx)
+        log_eval()
     if FLAGS.only_evaluate:
         obj_dump_dir = os.path.join(FLAGS.log_dir,'obj_dump')
         net_provider.gen_gt_pred_objs(FLAGS.visu,obj_dump_dir)

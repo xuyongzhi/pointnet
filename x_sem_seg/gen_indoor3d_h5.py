@@ -1,10 +1,11 @@
 import os
 import numpy as np
 import sys
+import glob
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
-sys.path.append(os.path.join(ROOT_DIR, 'utils'))
+sys.path.append(os.path.join(ROOT_DIR, 'x_utils'))
 import data_prep_util
 import indoor3d_util
 
@@ -12,6 +13,7 @@ import indoor3d_util
 data_dir = os.path.join(ROOT_DIR, 'data')
 indoor3d_data_dir = os.path.join(data_dir, 'stanford_indoor3d')
 NUM_POINT = 4096
+NUM_POINT =  5
 H5_BATCH_SIZE = 1000
 data_dim = [NUM_POINT, 9]
 label_dim = [NUM_POINT]
@@ -19,9 +21,15 @@ data_dtype = 'float32'
 label_dtype = 'uint8'
 
 # Set paths
-filelist = os.path.join(BASE_DIR, 'meta/all_data_label.txt')
+filelist = os.path.join(BASE_DIR, 'meta/all_data_label_1.txt')
 data_label_files = [os.path.join(indoor3d_data_dir, line.rstrip()) for line in open(filelist)]
-output_dir = os.path.join(data_dir, 'indoor3d_sem_seg_hdf5_data')
+output_dir = os.path.join(data_dir, 'indoor3d_sem_seg_hdf5_data_tmp')
+
+#input_dir = os.path.join(data_dir,'net_provider_test')
+#data_label_files = glob.glob( input_dir+'/*.npy' )
+#output_dir = input_dir
+
+
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
 output_filename_prefix = os.path.join(output_dir, 'ply_data_all')
@@ -51,11 +59,11 @@ def insert_batch(data, label, last_batch=False):
         capacity = h5_batch_data.shape[0] - buffer_size
         assert(capacity>=0)
         if capacity > 0:
-           h5_batch_data[buffer_size:buffer_size+capacity, ...] = data[0:capacity, ...] 
-           h5_batch_label[buffer_size:buffer_size+capacity, ...] = label[0:capacity, ...] 
+           h5_batch_data[buffer_size:buffer_size+capacity, ...] = data[0:capacity, ...]
+           h5_batch_label[buffer_size:buffer_size+capacity, ...] = label[0:capacity, ...]
         # Save batch data and label to h5 file, reset buffer_size
         h5_filename =  output_filename_prefix + '_' + str(h5_index) + '.h5'
-        data_prep_util.save_h5(h5_filename, h5_batch_data, h5_batch_label, data_dtype, label_dtype) 
+        data_prep_util.save_h5(h5_filename, h5_batch_data, h5_batch_label, data_dtype, label_dtype)
         print('Stored {0} with size {1}'.format(h5_filename, h5_batch_data.shape[0]))
         h5_index += 1
         buffer_size = 0

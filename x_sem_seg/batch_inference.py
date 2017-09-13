@@ -61,7 +61,7 @@ def load_txt_npy(filename):
 def evaluate():
     is_training = False
 
-    with tf.device('/cpu:'+str(GPU_INDEX)):
+    with tf.device('/gpu:'+str(GPU_INDEX)):
         pointclouds_pl, labels_pl = placeholder_inputs(BATCH_SIZE, NUM_POINT)
         is_training_pl = tf.placeholder(tf.bool, shape=())
 

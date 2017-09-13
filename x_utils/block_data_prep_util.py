@@ -31,6 +31,7 @@ class GLOBAL_PARA():
     stanford_indoor3d_sortedh5 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5')
     stanford_indoor3d_stride_0d5_step_0d5 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_0.5')
     stanford_indoor3d_stride_0d5_step_1 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_1')
+    stanford_indoor3d_stride_0d5_step_1_4096 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_1_4096')
     stanford_indoor3d_normed_stride_0d5_step_1_4096 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_normedh5_stride_0.5_step_1_4096')
 
     ETH_traing_A =  os.path.join(UPER_DIR,'Dataset/ETH_Semantic3D_Dataset/training')
@@ -747,7 +748,8 @@ class Sorted_H5f():
             self.set_root_attr('sample_method',sample_method)
             for i, k_str in enumerate( self.sorted_h5f ):
                 dset_k = self.sorted_h5f[k_str]
-                if dset_k.shape[0] < sample_num*0.3:
+                #if dset_k.shape[0] < sample_num*0.3:
+                if dset_k.shape[0] < 100:
                     continue
                 sampled_sh5f.append_to_dset(int(k_str),dset_k,vacant_size=0,\
                                             sample_method=sample_method,sample_num=sample_num)
@@ -761,49 +763,69 @@ class Sorted_H5f():
             if gen_norm:
                 sampled_sh5f.file_normalization()
 
-    def normalize_dset(self,block_k_str):
+    def normalize_dset(self,block_k_str,xyz_1norm_method='global'):
         '''
         (1) xyz/max
         (2) xy-min-block_size/2  (only xy)
-        color / 255
+        (3) color / 255
         '''
         raw_dset_k = self.sorted_h5f[block_k_str]
-        batch_zero_flag = 'local'  # NOTE: Qi use global
 
-        norm_data_list = []
-
-        if batch_zero_flag == 'global':
-            batch_zero = self.xyz_min_aligned
-        else:
-            batch_zero = raw_dset_k.attrs['xyz_min']
+        norm_data_dic = {}
         raw_xyz = raw_dset_k[:,self.data_idxs['xyz']]
-        xyz = raw_xyz - batch_zero
 
-        xyz_max = xyz.max(axis=0)
-        xyz_min = xyz.min(axis=0)
+        #  xyz_1norm
+        if xyz_1norm_method == 'global': # used by QI
+            # 1norm within the whole scene
+            # use by QI in indoor. Since room scale is not large, this is fine.
+            # For outdoor,a scene could be too large, maybe not a good choice
+            IsUseAligned = False
+            if IsUseAligned:
+                file_scene_zero = self.xyz_min_aligned
+                file_scene_scope = self.xyz_max_aligned - self.xyz_min_aligned
+            else:
+                file_scene_zero = self.sorted_h5f.attrs['xyz_min']
+                file_scene_scope = self.sorted_h5f.attrs['xyz_max'] - self.sorted_h5f.attrs['xyz_min']
+            xyz_1norm = (raw_xyz - file_scene_zero) / file_scene_scope
+        elif xyz_1norm_method == 'local':
+            # 1norm within the block
+            block_scope = raw_dset_k.attrs['xyz_max'] - raw_dset_k.attrs['xyz_min']
+            xyz_1norm = (raw_xyz-raw_dset_k.attrs['xyz_min']) / block_scope
+
+        # xyz_midnorm
+        xyz_midnorm = raw_xyz+0 # as a new variable, not a reference
+        # only norm x,y. Keep z be the raw value
+        #xyz_min_real = np.min(raw_xyz,axis=0)
+        #xyz_midnorm[:,0:2] -= (xyz_min_real[0:2] + self.block_step[0:2]/2)  # used by QI
         block_mid = (raw_dset_k.attrs['xyz_min'] + raw_dset_k.attrs['xyz_max'] ) / 2
-        xyz_1norm = xyz / xyz_max
-        xyz_midnorm = xyz
-        xyz_midnorm[:,0:2] -= (xyz_min[0:2] + block_mid[0:2])
+        xyz_midnorm[:,0:2] -= block_mid[0:2]  # I think is better
+        # for z, just be positive
+        xyz_midnorm[:,2] -= self.sorted_h5f.attrs['xyz_min'][2]
 
-        norm_data_list.append(xyz_1norm)
-        norm_data_list.append(xyz_midnorm)
+        norm_data_dic['xyz_midnorm'] = xyz_midnorm
+        norm_data_dic['xyz_1norm'] = xyz_1norm
 
+        # color_1norm
         if 'color' in self.data_idxs:
             color_1norm = raw_dset_k[:,self.data_idxs['color']] / 255.0
-            norm_data_list.append(color_1norm)
+            norm_data_dic['color_1norm']=color_1norm
 
+
+        # intensity_1norm
         if 'intensity' in self.data_idxs:
+            # ETH senmantic3D intensity range from -2047 to 2048
             intensity = raw_dset_k[:,self.data_idxs['intensity']]
-            intensity_1norm = (intensity+2000)/2000
-            norm_data_list.append(intensity_1norm)
+            intensity_1norm = (intensity+2047)/(2048+2047)
+            norm_data_dic['intensity_1norm']=intensity_1norm
 
-        # order: 'xyz_1norm' 'xyz_midnorm' 'color_1norm' 'intensity_1norm'
+        # order: 'xyz_midnorm' 'color_1norm' ''xyz_1norm' intensity_1norm'
+        norm_data_list = []
+        for data_name in Normed_H5f.data_elements:
+            if data_name in norm_data_dic:
+                norm_data_list.append(norm_data_dic[data_name])
         data_norm = np.concatenate( norm_data_list,1 )
 
         label = raw_dset_k[:,self.data_idxs['label'][0]]
-        #print('raw: \n',raw_dset_k[0,:])
-        #print('norm:\n',dset_norm[0,:])
         return data_norm,label,raw_xyz
 
     def get_sample_shape(self):
@@ -812,8 +834,9 @@ class Sorted_H5f():
                 return dset.shape
 
     def file_normalization(self):
+        xyz_1norm_method = 'global'
         parts = os.path.splitext(self.file_name)
-        normalized_filename =  parts[0]+'_norm.nh5'
+        normalized_filename =  parts[0]+'_'+xyz_1norm_method+'norm.nh5'
         print('start gen normalized file: ',normalized_filename)
         with h5py.File(normalized_filename,'w') as h5f:
             normed_h5f = Normed_H5f(h5f,normalized_filename)
@@ -822,7 +845,7 @@ class Sorted_H5f():
             normed_h5f.create_dsets(self.total_block_N,sample_point_n,normed_num_channels)
 
             for i,k_str in  enumerate(self.sorted_h5f):
-                normed_data_i,normed_label_i,raw_xyz_i = self.normalize_dset(k_str)
+                normed_data_i,normed_label_i,raw_xyz_i = self.normalize_dset(k_str,xyz_1norm_method)
                 normed_h5f.append_to_dset('data',normed_data_i)
                 normed_h5f.append_to_dset('label',normed_label_i)
                 normed_h5f.append_to_dset('raw_xyz',raw_xyz_i)
@@ -843,9 +866,9 @@ class Sorted_H5f():
 
         new_name = tmp + new_part + '.sh5'
         print('new file: ',new_name)
-        if os.path.exists(new_name):
-            print('already exists, skip')
-            return
+        #if os.path.exists(new_name):
+        #    print('already exists, skip')
+        #    return
         with  h5py.File(base_file_name,'r') as base_h5f:
             with h5py.File(new_name,'w') as new_h5f:
                 new_sh5f = Sorted_H5f(new_h5f,new_name)
@@ -970,7 +993,7 @@ class Normed_H5f():
     #g_is_labeled = True
 
     ## normed data channels
-    data_elements = ['xyz_1norm','xyz_midnorm','color_1norm','intensity_1norm']
+    data_elements = ['xyz_midnorm','color_1norm','xyz_1norm','intensity_1norm']
     elements_idxs = {data_elements[0]:range(0,3),data_elements[1]:range(3,6),\
                      data_elements[2]:range(6,9),data_elements[3]:range(9,10)}
 
@@ -1046,8 +1069,8 @@ class Normed_H5f():
     def append_to_dset(self,dset_name,data_i,vacant_size=0):
         dset = self.h5f[dset_name]
         valid_num = dset.attrs['valid_num']
-        if data_i.ndim == dset.ndim -1:
-            for i in range(1,dset.ndim):
+        if data_i.ndim == len(dset.shape) -1:
+            for i in range(1,len(dset.shape)):
                 assert(dset.shape[i] == data_i.shape[i-1]), "in Normed_H5f.append_to_dset: data shape not match dataset"
             new_valid_num = valid_num + 1
             #print('append 2d to 3d')
@@ -1063,6 +1086,8 @@ class Normed_H5f():
         self.h5f.flush()
 
     def set_dset_value(self,dset_name,data_i,start_idx,end_idx):
+        if dset_name not in self.h5f:
+            return
         dset = self.h5f[dset_name]
         if dset.shape[0] < end_idx:
             dset.resize( (end_idx,) + dset.shape[1:] )
@@ -1115,6 +1140,13 @@ class Normed_H5f():
         correct_num = 0
         pred_num = 0
         file_size = self.raw_xyz_set.shape[0] * self.raw_xyz_set.shape[1]
+
+        CutRoof = True
+        if CutRoof:
+            z_max = np.max(self.raw_xyz_set[:,:,2])
+            z_min = np.min(self.raw_xyz_set[:,:,2])
+            z_threshold = 0.2*z_min + 0.8*z_max
+            cut_num = 0
         with open(gt_obj_fn,'w') as gt_f:
           with open(pred_obj_fn,'w') as pred_f:
             with open(dif_obj_fn,'w') as dif_f:
@@ -1128,6 +1160,10 @@ class Normed_H5f():
                     else:
                         IsGenPred = False
                     for i in range(xyz_block.shape[0]):
+                        if CutRoof:
+                            if xyz_block[i,2] > z_threshold:
+                                cut_num += 1
+                                continue
                         color_gt = self.label2color( label_gt[i] )
                         str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,:] ]) + ' \t'
                         str_color_gt = ' '.join( ['%d'%(d) for d in  color_gt]) + '\n'
@@ -1150,6 +1186,7 @@ class Normed_H5f():
                 print('gen pred obj file (%d,%f): \n%s '%(pred_num,1.0*pred_num/file_size,pred_obj_fn) )
                 print('gen correct obj file (%d,%f),: \n%s '%(correct_num,1.0*correct_num/pred_num,correct_obj_fn) )
                 print('gen dif obj file: ',pred_obj_fn)
+                print('cut roof ponit num = %d, z_threshold = %f'%(cut_num,z_threshold) )
 
 
 class SortSpace():
@@ -1943,6 +1980,7 @@ def gen_file_list(folder,format='h5'):
 
 
 
+netpro_test='/short/dh01/yx2146/pointnet/data/net_provider_test'
 class Indoor3d_Process():
     '''
     source:  from "http://buildingparser.stanford.edu/dataset.html"
@@ -1953,11 +1991,11 @@ class Indoor3d_Process():
         (4) merge each room to Sorted_H5f with step = 1 & stride = 0.5
         (5) sample each block to NUM_POINT points and normalize each block
     '''
-
     @staticmethod
     def gen_stanford_indoor3d_to_rawh5f():
         file_list = glob.glob( os.path.join( GLOBAL_PARA.stanford_indoor3d_collected_path,\
                                             '*.npy' ) )
+        file_list = glob.glob(os.path.join(netpro_test,'*.npy'))
         for fn in file_list:
             h5_fn = os.path.splitext(fn)[0]+'.h5'
             with h5py.File(h5_fn,'w') as h5f:
@@ -1974,13 +2012,15 @@ class Indoor3d_Process():
     def Do_SortSpace():
         file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_rawh5, \
                     '*.h5') )
+        file_list = glob.glob(os.path.join(netpro_test,'Area_6_OFFICE_1.h5'))
         block_step_xyz = [0.5,0.5,0.5]
         SortSpace(file_list,block_step_xyz)
     @staticmethod
     def MergeSampleNorm():
         file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_stride_0d5_step_0d5, \
-                    '*_stride_0.5_step_0.5.sh5') )
-        new_stride = [0.5,0.5,-1]
+                    'Area_6_office_1*_stride_0.5_step_0.5.sh5') )
+        #file_list = glob.glob(os.path.join(netpro_test,'Area_6_OFFICE_1_stride_0.5_step_0.5.sh5'))
+        new_stride = [1,1,-1]
         new_step = [1,1,-1]
         more_actions_config = {}
         more_actions_config['actions'] = ['merge','sample_merged','norm_sampled_merged']
@@ -1991,6 +2031,18 @@ class Indoor3d_Process():
             with h5py.File(fn,'r') as f:
                 sorted_h5f = Sorted_H5f(f,fn)
                 sorted_h5f.merge_to_new_step(new_stride,new_step,more_actions_config)
+
+    @staticmethod
+    def Norm():
+        file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_stride_0d5_step_1_4096,\
+                              'Area_6_pantry_1*.sh5') )
+      #  file_list = glob.glob( os.path.join('/short/dh01/yx2146/pointnet/data/stanford_indoor3d_sortedh5_stride_1_step_1',\
+      #                        'Area_6_office_1_stride_1_step_1_random_4096.sh5') )
+        for fn in file_list:
+            with h5py.File(fn,'r') as f:
+                sorted_h5f = Sorted_H5f(f,fn)
+                sorted_h5f.file_normalization()
+
     @staticmethod
     def MergeAreaRooms():
         # and add area num dataset
@@ -2052,7 +2104,8 @@ if __name__ == '__main__':
     #Normed_H5f.show_all_colors()
     #Gen_raw_label_color_obj()
     #Indoor3d_Process.gen_stanford_indoor3d_to_rawh5f()
+    #Indoor3d_Process.Do_SortSpace()
     #Indoor3d_Process.MergeSampleNorm()
-    #Indoor3d_Process.MergeAreaRooms()
+    Indoor3d_Process.Norm()
     T = time.time() - START_T
     print('exit main, T = ',T)

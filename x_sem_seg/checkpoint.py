@@ -1,7 +1,13 @@
 import tensorflow as tf
 import os
 import sys
-sys.path.append('/home/x/Research/tensorflow/tensorflow/python/tools')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+UPER_DIR = os.path.dirname(ROOT_DIR)
+TF_DIR = os.path.join(UPER_DIR,'tensorflow')
+TF_TOOLS = os.path.join(TF_DIR,'tensorflow/python/tools')
+sys.path.append( TF_TOOLS )
+print(TF_TOOLS)
 import inspect_checkpoint  as inscp
 
 LOGPATH = 'LOG_QI/log1'
@@ -39,7 +45,7 @@ def Rename_moments_ExponentialMovingAverage(old_log_path):
         conv1/bn/conv1/bn/moments/Squeeze/ExponentialMovingAverage
         conv1/bn/conv1/bn/moments/Squeeze_1/ExponentialMovingAverage
     '''
-    new_log_path = old_log_path+'_updated'
+    new_log_path = old_log_path+'_'
 
     OLD_CHECKPOINT_FILE = os.path.join(old_log_path,'model.ckpt')
     NEW_CHECKPOINT_FILE = os.path.join(new_log_path,'model.ckpt')
