@@ -5,7 +5,7 @@ import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(BASE_DIR))
-sys.path.append(os.path.join(BASE_DIR, '../utils'))
+sys.path.append(os.path.join(BASE_DIR, '../x_utils'))
 import tf_util
 
 
@@ -129,7 +129,7 @@ def get_model(point_cloud, input_label, is_training, cat_num, part_num, \
     net2 = tf_util.dropout(net2, keep_prob=0.8, is_training=is_training, scope='seg/dp2')
     net2 = tf_util.conv2d(net2, 128, [1,1], padding='VALID', stride=[1,1], bn_decay=bn_decay,
                         bn=True, is_training=is_training, scope='seg/conv3', weight_decay=weight_decay)
-    net2 = tf_util.conv2d(net2, part_num, [1,1], padding='VALID', stride=[1,1], activation_fn=None, 
+    net2 = tf_util.conv2d(net2, part_num, [1,1], padding='VALID', stride=[1,1], activation_fn=None,
                         bn=False, scope='seg/conv4', weight_decay=weight_decay)
 
     net2 = tf.reshape(net2, [batch_size, num_point, part_num])
@@ -146,13 +146,13 @@ def get_loss(l_pred, seg_pred, label, seg, weight, end_points):
     seg_loss = tf.reduce_mean(per_instance_seg_loss)
 
     per_instance_seg_pred_res = tf.argmax(seg_pred, 2)
-    
+
     # Enforce the transformation as orthogonal matrix
     transform = end_points['transform'] # BxKxK
     K = transform.get_shape()[1].value
     mat_diff = tf.matmul(transform, tf.transpose(transform, perm=[0,2,1])) - tf.constant(np.eye(K), dtype=tf.float32)
-    mat_diff_loss = tf.nn.l2_loss(mat_diff) 
-    
+    mat_diff_loss = tf.nn.l2_loss(mat_diff)
+
 
     total_loss = weight * seg_loss + (1 - weight) * label_loss + mat_diff_loss * 1e-3
 

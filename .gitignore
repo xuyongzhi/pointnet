@@ -5,6 +5,7 @@
 /part_seg/hdf5_data/
 part_seg/PartAnnotation.zip
 part_seg/hdf5_data.zip
+part_seg/test_results*
 part_seg/PBS/train_results/trained_models
 dump
 sem_seg/out*
