@@ -246,6 +246,71 @@ class Sorted_H5f():
     stride_to_align = 1
     h5_num_row_1M = g_h5_num_row_1M
 
+
+    def normalize_dset(self,block_k_str,xyz_1norm_method='global'):
+        '''
+        (1) xyz/max
+        (2) xy-min-block_size/2  (only xy)
+        (3) color / 255
+        '''
+        raw_dset_k = self.sorted_h5f[block_k_str]
+
+        norm_data_dic = {}
+        raw_xyz = raw_dset_k[:,self.data_idxs['xyz']]
+        #  xyz_1norm
+        if xyz_1norm_method == 'global': # used by QI
+            # 1norm within the whole scene
+            # use by QI in indoor. Since room scale is not large, this is fine.
+            # For outdoor,a scene could be too large, maybe not a good choice
+            IsUseAligned = False
+            if IsUseAligned:
+                file_scene_zero = self.xyz_min_aligned
+                file_scene_scope = self.xyz_max_aligned - self.xyz_min_aligned
+            else:
+                file_scene_zero = self.sorted_h5f.attrs['xyz_min']
+                file_scene_scope = self.sorted_h5f.attrs['xyz_max'] - self.sorted_h5f.attrs['xyz_min']
+            xyz_1norm = (raw_xyz - file_scene_zero) / file_scene_scope
+        elif xyz_1norm_method == 'local':
+            # 1norm within the block
+            block_scope = raw_dset_k.attrs['xyz_max'] - raw_dset_k.attrs['xyz_min']
+            xyz_1norm = (raw_xyz-raw_dset_k.attrs['xyz_min']) / block_scope
+
+        # xyz_midnorm
+        xyz_midnorm = raw_xyz+0 # as a new variable, not a reference
+        # only norm x,y. Keep z be the raw value
+        #xyz_min_real = np.min(raw_xyz,axis=0)
+        #xyz_midnorm[:,0:2] -= (xyz_min_real[0:2] + self.block_step[0:2]/2)  # used by QI
+        block_mid = (raw_dset_k.attrs['xyz_min'] + raw_dset_k.attrs['xyz_max'] ) / 2
+        xyz_midnorm[:,0:2] -= block_mid[0:2]  # I think is better
+        # for z, just be positive
+        xyz_midnorm[:,2] -= self.sorted_h5f.attrs['xyz_min'][2]
+
+        norm_data_dic['xyz_midnorm'] = xyz_midnorm
+        norm_data_dic['xyz_1norm'] = xyz_1norm
+
+        # color_1norm
+        if 'color' in self.data_idxs:
+            color_1norm = raw_dset_k[:,self.data_idxs['color']] / 255.0
+            norm_data_dic['color_1norm']=color_1norm
+
+
+        # intensity_1norm
+        if 'intensity' in self.data_idxs:
+            # ETH senmantic3D intensity range from -2047 to 2048
+            intensity = raw_dset_k[:,self.data_idxs['intensity']]
+            intensity_1norm = (intensity+2047)/(2048+2047)
+            norm_data_dic['intensity_1norm']=intensity_1norm
+
+        # order: 'xyz_midnorm' 'color_1norm' ''xyz_1norm' intensity_1norm'
+        norm_data_list = []
+        for data_name in Normed_H5f.data_elements:
+            if data_name in norm_data_dic:
+                norm_data_list.append(norm_data_dic[data_name])
+        data_norm = np.concatenate( norm_data_list,1 )
+
+        label = raw_dset_k[:,self.data_idxs['label'][0]]
+        return data_norm,label,raw_xyz
+
     def __init__(self,sorted_h5f,file_name=None):
         self.sorted_h5f = sorted_h5f
         self.get_summary_info()
@@ -763,70 +828,6 @@ class Sorted_H5f():
             if gen_norm:
                 sampled_sh5f.file_normalization()
 
-    def normalize_dset(self,block_k_str,xyz_1norm_method='global'):
-        '''
-        (1) xyz/max
-        (2) xy-min-block_size/2  (only xy)
-        (3) color / 255
-        '''
-        raw_dset_k = self.sorted_h5f[block_k_str]
-
-        norm_data_dic = {}
-        raw_xyz = raw_dset_k[:,self.data_idxs['xyz']]
-
-        #  xyz_1norm
-        if xyz_1norm_method == 'global': # used by QI
-            # 1norm within the whole scene
-            # use by QI in indoor. Since room scale is not large, this is fine.
-            # For outdoor,a scene could be too large, maybe not a good choice
-            IsUseAligned = False
-            if IsUseAligned:
-                file_scene_zero = self.xyz_min_aligned
-                file_scene_scope = self.xyz_max_aligned - self.xyz_min_aligned
-            else:
-                file_scene_zero = self.sorted_h5f.attrs['xyz_min']
-                file_scene_scope = self.sorted_h5f.attrs['xyz_max'] - self.sorted_h5f.attrs['xyz_min']
-            xyz_1norm = (raw_xyz - file_scene_zero) / file_scene_scope
-        elif xyz_1norm_method == 'local':
-            # 1norm within the block
-            block_scope = raw_dset_k.attrs['xyz_max'] - raw_dset_k.attrs['xyz_min']
-            xyz_1norm = (raw_xyz-raw_dset_k.attrs['xyz_min']) / block_scope
-
-        # xyz_midnorm
-        xyz_midnorm = raw_xyz+0 # as a new variable, not a reference
-        # only norm x,y. Keep z be the raw value
-        #xyz_min_real = np.min(raw_xyz,axis=0)
-        #xyz_midnorm[:,0:2] -= (xyz_min_real[0:2] + self.block_step[0:2]/2)  # used by QI
-        block_mid = (raw_dset_k.attrs['xyz_min'] + raw_dset_k.attrs['xyz_max'] ) / 2
-        xyz_midnorm[:,0:2] -= block_mid[0:2]  # I think is better
-        # for z, just be positive
-        xyz_midnorm[:,2] -= self.sorted_h5f.attrs['xyz_min'][2]
-
-        norm_data_dic['xyz_midnorm'] = xyz_midnorm
-        norm_data_dic['xyz_1norm'] = xyz_1norm
-
-        # color_1norm
-        if 'color' in self.data_idxs:
-            color_1norm = raw_dset_k[:,self.data_idxs['color']] / 255.0
-            norm_data_dic['color_1norm']=color_1norm
-
-
-        # intensity_1norm
-        if 'intensity' in self.data_idxs:
-            # ETH senmantic3D intensity range from -2047 to 2048
-            intensity = raw_dset_k[:,self.data_idxs['intensity']]
-            intensity_1norm = (intensity+2047)/(2048+2047)
-            norm_data_dic['intensity_1norm']=intensity_1norm
-
-        # order: 'xyz_midnorm' 'color_1norm' ''xyz_1norm' intensity_1norm'
-        norm_data_list = []
-        for data_name in Normed_H5f.data_elements:
-            if data_name in norm_data_dic:
-                norm_data_list.append(norm_data_dic[data_name])
-        data_norm = np.concatenate( norm_data_list,1 )
-
-        label = raw_dset_k[:,self.data_idxs['label'][0]]
-        return data_norm,label,raw_xyz
 
     def get_sample_shape(self):
             for i,k_str in  enumerate(self.sorted_h5f):
@@ -2035,9 +2036,7 @@ class Indoor3d_Process():
     @staticmethod
     def Norm():
         file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_stride_0d5_step_1_4096,\
-                              'Area_6_pantry_1*.sh5') )
-      #  file_list = glob.glob( os.path.join('/short/dh01/yx2146/pointnet/data/stanford_indoor3d_sortedh5_stride_1_step_1',\
-      #                        'Area_6_office_1_stride_1_step_1_random_4096.sh5') )
+                              '*.sh5') )
         for fn in file_list:
             with h5py.File(fn,'r') as f:
                 sorted_h5f = Sorted_H5f(f,fn)
