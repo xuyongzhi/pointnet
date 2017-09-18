@@ -341,7 +341,8 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
         correct = np.sum(pred_val == batch_label)
         total_correct += correct
         total_seen += (BATCH_SIZE*NUM_POINT)
-        loss_sum += (loss_val*BATCH_SIZE)
+        #loss_sum += (loss_val*BATCH_SIZE)
+        loss_sum += loss_val
         for i in range(0,batch_label.shape[0]):
             for j in range(NUM_POINT):
                 l = batch_label[i, j]
