@@ -113,7 +113,7 @@ def train():
                             staircase=True          # Stair-case or continuous decreasing
                             )
             learning_rate = tf.maximum(learning_rate, LEARNING_RATE_CLIP)
-        
+
             bn_momentum = tf.train.exponential_decay(
                       BN_INIT_DECAY,
                       batch*batch_size,
@@ -125,7 +125,7 @@ def train():
             lr_op = tf.summary.scalar('learning_rate', learning_rate)
             batch_op = tf.summary.scalar('batch_number', batch)
             bn_decay_op = tf.summary.scalar('bn_decay', bn_decay)
- 
+
             labels_pred, seg_pred, end_points = model.get_model(pointclouds_ph, input_label_ph, \
                     is_training=is_training_ph, bn_decay=bn_decay, cat_num=NUM_CATEGORIES, \
                     part_num=NUM_PART_CATS, batch_size=batch_size, num_point=point_num, weight_decay=FLAGS.wd)
@@ -181,7 +181,7 @@ def train():
         config.gpu_options.allow_growth = True
         config.allow_soft_placement = True
         sess = tf.Session(config=config)
-        
+
         init = tf.global_variables_initializer()
         sess.run(init)
 
@@ -227,11 +227,11 @@ def train():
                     endidx = (j + 1) * batch_size
 
                     feed_dict = {
-                            pointclouds_ph: cur_data[begidx: endidx, ...], 
-                            labels_ph: cur_labels[begidx: endidx, ...], 
-                            input_label_ph: cur_labels_one_hot[begidx: endidx, ...], 
+                            pointclouds_ph: cur_data[begidx: endidx, ...],
+                            labels_ph: cur_labels[begidx: endidx, ...],
+                            input_label_ph: cur_labels_one_hot[begidx: endidx, ...],
                             seg_ph: cur_seg[begidx: endidx, ...],
-                            is_training_ph: is_training, 
+                            is_training_ph: is_training,
                             }
 
                     _, loss_val, label_loss_val, seg_loss_val, per_instance_label_loss_val, \
@@ -246,7 +246,7 @@ def train():
                     total_loss += loss_val
                     total_label_loss += label_loss_val
                     total_seg_loss += seg_loss_val
-                    
+
                     per_instance_label_pred = np.argmax(label_pred_val, axis=1)
                     total_label_acc += np.mean(np.float32(per_instance_label_pred == cur_labels[begidx: endidx, ...]))
                     total_seg_acc += average_part_acc
@@ -310,11 +310,11 @@ def train():
                     begidx = j * batch_size
                     endidx = (j + 1) * batch_size
                     feed_dict = {
-                            pointclouds_ph: cur_data[begidx: endidx, ...], 
-                            labels_ph: cur_labels[begidx: endidx, ...], 
-                            input_label_ph: cur_labels_one_hot[begidx: endidx, ...], 
+                            pointclouds_ph: cur_data[begidx: endidx, ...],
+                            labels_ph: cur_labels[begidx: endidx, ...],
+                            input_label_ph: cur_labels_one_hot[begidx: endidx, ...],
                             seg_ph: cur_seg[begidx: endidx, ...],
-                            is_training_ph: is_training, 
+                            is_training_ph: is_training,
                             }
 
                     loss_val, label_loss_val, seg_loss_val, per_instance_label_loss_val, \
@@ -330,7 +330,7 @@ def train():
                     total_loss += loss_val
                     total_label_loss += label_loss_val
                     total_seg_loss += seg_loss_val
-                    
+
                     per_instance_label_pred = np.argmax(label_pred_val, axis=1)
                     total_label_acc += np.mean(np.float32(per_instance_label_pred == cur_labels[begidx: endidx, ...]))
                     total_seg_acc += average_part_acc
