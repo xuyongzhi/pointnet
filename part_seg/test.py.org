@@ -124,9 +124,9 @@ def convert_label_to_one_hot(labels):
         label_one_hot[idx, labels[idx]] = 1
     return label_one_hot
 
+def predict():
+    is_training = False
 
-
-def ops_init():
     with tf.device('/gpu:'+str(gpu_to_use)):
         pointclouds_ph, input_label_ph = placeholder_inputs()
         is_training_ph = tf.placeholder(tf.bool, shape=())
@@ -135,24 +135,6 @@ def ops_init():
         pred, seg_pred, end_points = model.get_model(pointclouds_ph, input_label_ph, \
                 cat_num=NUM_OBJ_CATS, part_num=NUM_PART_CATS, is_training=is_training_ph, \
                 batch_size=batch_size, num_point=point_num, weight_decay=0.0, bn_decay=None)
-        ops={}
-        ops['pred'] = pred
-        ops['seg_pred'] = seg_pred
-        return ops
-
-
-def predict_batch( ops,batch_data,cur_label_one_hot ):
-    is_training = False
-
-    label_pred_val, seg_pred_res = sess.run([ops['pred'], ops['seg_pred']], feed_dict={
-                pointclouds_ph: batch_data,
-                input_label_ph: cur_label_one_hot,
-                is_training_ph: is_training,
-            })
-    return label_pred_val,seg_pred_res
-
-def predict_default(  ):
-
 
     # Add ops to save and restore all the variables.
     saver = tf.train.Saver()
@@ -212,12 +194,11 @@ def predict_default(  ):
 
             batch_data[0, ...] = pc_augment_to_point_num(pc_normalize(pts), point_num)
 
-
-
-            plabel_pred_val, seg_pred_res = predict_batch(batch_data,cur_label_one_hot)
-
-
-
+            label_pred_val, seg_pred_res = sess.run([pred, seg_pred], feed_dict={
+                        pointclouds_ph: batch_data,
+                        input_label_ph: cur_label_one_hot,
+                        is_training_ph: is_training,
+                    })
 
             label_pred_val = np.argmax(label_pred_val[0, :])
 
