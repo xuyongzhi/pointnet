@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import socket
 import glob
+import time
 
 import os
 import sys
@@ -111,6 +112,7 @@ net_provider = Net_Provider(all_file_list = all_file_list, \
                             eval_num_block_rate = eval_num_block_rate)
 NUM_CHANNELS = net_provider.num_channels
 
+T_START = time.time()
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
@@ -239,12 +241,21 @@ def train_one_epoch(sess, ops, train_writer,epoch):
     batch_idx = 0
 
     print('total batch num = ',num_batches)
+    t0 = time.time()
     def log_train():
         log_string('epoch %d batch %d/%d \ttrain \tmean loss: %f   \taccuracy: %f' % \
                    (epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),total_correct / float(total_seen)  ))
+        t_cur = time.time()
+        t_epoch = t_cur - t0
+        t_block = t_epoch / (batch_idx+1) / BATCH_SIZE
+        t_point = t_block / NUM_POINT * 1000
+        t_train_total = t_cur - T_START
+        log_string('per block training t = %f sec    per point t = %f ms\ntotal training t = %f sec'\
+                %(t_block,t_point,t_train_total))
 
     shuffled_batch_idxs = np.arange(num_batches)
     np.random.shuffle(shuffled_batch_idxs)
+
     for batch_idx,batch_idx_shuffled in enumerate(shuffled_batch_idxs):
         start_idx = batch_idx_shuffled * BATCH_SIZE
         end_idx = (batch_idx_shuffled+1) * BATCH_SIZE
@@ -295,6 +306,7 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
     num_batches = int(math.ceil( 1.0 * eval_num_blocks / BATCH_SIZE ))
     #num_batches = eval_num_blocks // BATCH_SIZE
 
+    t0 = time.time()
     def log_eval():
         log_string('epoch %d batch %d/%d \teval \tmean loss: %f   \taccuracy: %f' % \
                    ( epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),\
@@ -305,6 +317,10 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
         log_string('eval  %s'%(cls_acc_str))
         #log_string('eval class accuracies: %s' % (np.array2string(class_accuracies,formatter={'float':lambda x: "%f"%x})))
 
+        t_epoch = time.time() - t0
+        t_per_block = t_epoch / (batch_idx+1) / BATCH_SIZE
+        t_per_point = t_per_block / NUM_POINT * 1000
+        log_string('per block eval time = %f sec      per point t = %f ms'%(t_per_block,t_per_point) )
 
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
@@ -354,6 +370,7 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
             if batch_idx%101==0:
                 log_eval()
                 log_string('write pred_label into h5f [%d,%d]'%(start_idx,end_idx))
+
     if batch_idx>=0:
         log_eval()
     if FLAGS.only_evaluate:
@@ -365,4 +382,5 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
 
 if __name__ == "__main__":
     train()
+
     LOG_FOUT.close()

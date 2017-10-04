@@ -177,6 +177,7 @@ def predict():
         ffiles.close()
 
         len_pts_files = len(pts_files)
+        import pdb; pdb.set_trace()  # XXX BREAKPOINT
         for shape_idx in range(len_pts_files):
             if shape_idx % 100 == 0:
                 printout(flog, '%d/%d ...' % (shape_idx, len_pts_files))
