@@ -1,7 +1,6 @@
 #!/bin/bash
 
-#LOG_DIR="log6_err"
-LOG_DIR="LOG_QI_NEWTF/log6_"
+LOG_DIR="LOG_QI_NEWTF/log5_"
 
 #DATA_PATH="stanford_indoor3d_localnormedh5_stride_0.5_step_1_4096"
 DATA_PATH="stanford_indoor3d_globalnormedh5_stride_0.5_step_1_4096"

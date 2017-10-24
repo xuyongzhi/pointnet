@@ -32,7 +32,7 @@ class GLOBAL_PARA():
     stanford_indoor3d_stride_0d5_step_0d5 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_0.5')
     stanford_indoor3d_stride_0d5_step_1 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_1')
     stanford_indoor3d_stride_0d5_step_1_4096 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_sortedh5_stride_0.5_step_1_4096')
-    stanford_indoor3d_normed_stride_0d5_step_1_4096 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_normedh5_stride_0.5_step_1_4096')
+    stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096 = os.path.join(ROOT_DIR,'data/stanford_indoor3d_globalnormedh5_stride_0.5_step_1_4096')
 
     ETH_traing_A =  os.path.join(UPER_DIR,'Dataset/ETH_Semantic3D_Dataset/training')
     ETH_raw_partA = os.path.join( ETH_traing_A,'partA' )
@@ -1123,17 +1123,46 @@ class Normed_H5f():
                 dset_i.resize( (valid_n,)+dset_i.shape[1:] )
 
 
-    def gen_gt_pred_obj(self,out_path=None):
+    def gen_gt_pred_obj_examples(self,config_flag = 1,out_path=None):
+        #{'ceiling','floor','wall','beam','column','window','door','table','chair','sofa','bookcase','board','clutter'}
+        if config_flag ==None:
+            xyz_cut_rate=None
+            show_categaries=None
+        if config_flag =='only_ceiling':
+            xyz_cut_rate=None
+            show_categaries=['ceiling']
+        if config_flag ==1:
+            xyz_cut_rate=[0.05,0,0.95]
+            show_categaries=None
+
+        self.gen_gt_pred_obj(out_path,xyz_cut_rate,show_categaries)
+
+    def gen_gt_pred_obj(self,out_path=None,xyz_cut_rate=None,show_categaries=None):
+        '''
+            (1)xyz_cut_rate:
+                # when rate < 0.5: cut small
+                # when rate >0.5: cut big
+            (2) show_categaries:  ['ceiling']
+                the categaries to show, if None  show all
+        '''
+        if show_categaries != None:
+            show_categaries = [self.g_class2label[c] for c in show_categaries]
+        if self.pred_label_set.shape[0] ==0:
+            print('File: %s \n   has no pred data'%(self.file_name))
+            return
         base_fn = os.path.basename(self.file_name)
         base_fn = os.path.splitext(base_fn)[0]
         folder_path = os.path.dirname(self.file_name)
         if out_path == None:
-            obj_folder = os.path.join(folder_path,base_fn)
+            obj_folder = os.path.join(folder_path,'obj_file',base_fn)
         else:
             obj_folder = os.path.join(out_path,base_fn)
+        print('obj_folder=',obj_folder)
         if not os.path.exists(obj_folder):
             os.makedirs(obj_folder)
 
+        raw_obj_fn = os.path.join(obj_folder,'raw.obj')
+        raw_colored_obj_fn = os.path.join(obj_folder,'raw_colored.obj')
         gt_obj_fn = os.path.join(obj_folder,'gt.obj')
         pred_obj_fn = os.path.join(obj_folder,'pred.obj')
         dif_obj_fn = os.path.join(obj_folder,'dif.obj')
@@ -1142,13 +1171,17 @@ class Normed_H5f():
         pred_num = 0
         file_size = self.raw_xyz_set.shape[0] * self.raw_xyz_set.shape[1]
 
-        CutRoof = True
-        if CutRoof:
-            z_max = np.max(self.raw_xyz_set[:,:,2])
-            z_min = np.min(self.raw_xyz_set[:,:,2])
-            z_threshold = 0.2*z_min + 0.8*z_max
-            cut_num = 0
-        with open(gt_obj_fn,'w') as gt_f:
+        if xyz_cut_rate != None:
+            xyz_cut_rate = [0.1,0,0.9]
+            # when rate < 0.5: cut small
+            # when rate >0.5: cut big
+            xyz_max = np.array([np.max(self.raw_xyz_set[:,:,i]) for i in range(3)])
+            xyz_min = np.array([np.min(self.raw_xyz_set[:,:,i]) for i in range(3)])
+            xyz_scope = xyz_max - xyz_min
+            xyz_thres = xyz_scope * xyz_cut_rate + xyz_min
+            print('xyz_thres = ',str(xyz_thres))
+        cut_num = 0
+        with open(gt_obj_fn,'w') as gt_f, open(raw_obj_fn,'w') as raw_f, open(raw_colored_obj_fn,'w') as raw_colored_f:
           with open(pred_obj_fn,'w') as pred_f:
             with open(dif_obj_fn,'w') as dif_f:
               with open(correct_obj_fn,'w') as correct_f:
@@ -1161,12 +1194,25 @@ class Normed_H5f():
                     else:
                         IsGenPred = False
                     for i in range(xyz_block.shape[0]):
-                        if CutRoof:
-                            if xyz_block[i,2] > z_threshold:
-                                cut_num += 1
-                                continue
+                        # cut parts by xyz or label
+                        is_cut_this_point = False
+                        if show_categaries!=None and label_gt[i] not in show_categaries:
+                            is_cut_this_point = True
+                        elif xyz_cut_rate!=None:
+                            for xyz_j in range(3):
+                                if (xyz_cut_rate[xyz_j] >0.5 and xyz_block[i,xyz_j] > xyz_thres[xyz_j]) or \
+                                    (xyz_cut_rate[xyz_j]<=0.5 and xyz_block[i,xyz_j] < xyz_thres[xyz_j]):
+                                    is_cut_this_point =  True
+                        if is_cut_this_point:
+                            cut_num += 1
+                            continue
+
                         color_gt = self.label2color( label_gt[i] )
-                        str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,:] ]) + ' \t'
+                        str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,:] ])
+                        raw_f.write(str_xyz+'\n')
+                        str_xyz = str_xyz + ' \t'
+                        str_raw_color = ' '.join( ['%d'%(d) for d in  256*self.data_set[j,i,self.elements_idxs['color_1norm']]]) + '\n'
+                        raw_colored_f.write(str_xyz+str_raw_color)
                         str_color_gt = ' '.join( ['%d'%(d) for d in  color_gt]) + '\n'
                         str_gt = str_xyz + str_color_gt
                         gt_f.write( str_gt )
@@ -1182,12 +1228,14 @@ class Normed_H5f():
                                 correct_f.write(str_pred)
                                 correct_num += 1
                             pred_num += 1
+                    if j%10 ==0: print('batch %d / %d'%(j,self.raw_xyz_set.shape[0]))
 
                 print('gen gt obj file (%d): \n%s'%(file_size,gt_obj_fn) )
-                print('gen pred obj file (%d,%f): \n%s '%(pred_num,1.0*pred_num/file_size,pred_obj_fn) )
-                print('gen correct obj file (%d,%f),: \n%s '%(correct_num,1.0*correct_num/pred_num,correct_obj_fn) )
+                if pred_num > 0:
+                    print('gen pred obj file (%d,%f): \n%s '%(pred_num,1.0*pred_num/file_size,pred_obj_fn) )
+                    print('gen correct obj file (%d,%f),: \n%s '%(correct_num,1.0*correct_num/pred_num,correct_obj_fn) )
                 print('gen dif obj file: ',pred_obj_fn)
-                print('cut roof ponit num = %d, z_threshold = %f'%(cut_num,z_threshold) )
+                print('cut roof ponit num = %d, xyz_cut_rate = %s'%(cut_num,str(xyz_cut_rate)) )
 
 
 class SortSpace():
@@ -1961,11 +2009,16 @@ def Do_gen_normed_obj(file_list):
             norm_h5f = Normed_H5f(h5f,fn)
             norm_h5f.gen_gt_pred_obj()
 
-def Do_gen_gt_pred_objs(file_list):
+def Do_gen_gt_pred_objs(file_list=None):
+    if file_list == None:
+        folder = GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096
+        # many chairs and tables
+        #file_list = glob.glob(os.path.join(folder,'Area_1_office_16_stride_0.5_step_1_random_4096_globalnorm.nh5'))
+        file_list = glob.glob(os.path.join(folder,'Area_1_office_10_stride_0.5_step_1_random_4096_globalnorm.nh5'))
     for fn in file_list:
         with h5py.File(fn,'r') as h5f:
             norm_h5f = Normed_H5f(h5f,fn)
-            norm_h5f.gen_gt_pred_obj()
+            norm_h5f.gen_gt_pred_obj_examples()
 
 def gen_file_list(folder,format='h5'):
     file_list = glob.glob( os.path.join(folder,'*.'+format) )
@@ -2099,12 +2152,12 @@ if __name__ == '__main__':
     #Do_gen_normed_obj(file_list)
     #Do_Norm(file_list)
     #gen_file_list(GLOBAL_PARA.seg_train_path)
-    #Do_gen_gt_pred_objs(file_list)
+    Do_gen_gt_pred_objs()
     #Normed_H5f.show_all_colors()
     #Gen_raw_label_color_obj()
     #Indoor3d_Process.gen_stanford_indoor3d_to_rawh5f()
     #Indoor3d_Process.Do_SortSpace()
     #Indoor3d_Process.MergeSampleNorm()
-    Indoor3d_Process.Norm()
+    #Indoor3d_Process.Norm()
     T = time.time() - START_T
     print('exit main, T = ',T)
