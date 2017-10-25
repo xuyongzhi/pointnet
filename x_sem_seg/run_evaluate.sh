@@ -1,6 +1,6 @@
 #!/bin/bash
 
-LOG_DIR="LOG_QI_NEWTF/log5_"
+LOG_DIR="LOG_QI_NEWTF/log1_"
 
 #DATA_PATH="stanford_indoor3d_localnormedh5_stride_0.5_step_1_4096"
 DATA_PATH="stanford_indoor3d_globalnormedh5_stride_0.5_step_1_4096"
@@ -8,8 +8,8 @@ DATA_PATH="stanford_indoor3d_globalnormedh5_stride_0.5_step_1_4096"
 
 echo "LOG_DIR=$LOG_DIR"
 
-python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 1 --num_point 4096 --eval_data_rate 1   --all_fn_glob $DATA_PATH/Area_1_office_2     --visu None
-#python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 1 --num_point 4096 --eval_data_rate 1   --all_fn_glob $DATA_PATH/Area_1_office_1    --visu Area_1_office_1
+python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 1 --num_point 4096 --eval_data_rate 1   --all_fn_glob $DATA_PATH/*     --visu None
+#python train_sorted.py --only_evaluate --log_dir $LOG_DIR  --batch_size 1 --num_point 4096 --eval_data_rate 1   --all_fn_glob $DATA_PATH/Area_1_office_10    --visu None
 
 
 

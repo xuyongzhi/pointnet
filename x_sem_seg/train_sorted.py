@@ -76,9 +76,9 @@ if not os.path.exists(LOG_DIR): os.mkdir(LOG_DIR)
 os.system('cp model.py %s' % (LOG_DIR)) # bkp of model def
 os.system('cp train.py %s' % (LOG_DIR)) # bkp of train procedure
 if not FLAGS.only_evaluate:
-    log_name = 'log_train.txt'
+    log_name = 'log_Train.txt'
 else:
-    log_name = 'log_test.txt'
+    log_name = 'log_Test.txt'
 LOG_FOUT = open(os.path.join(LOG_DIR, log_name), 'w')
 LOG_FOUT.write(str(FLAGS)+'\n')
 
@@ -241,12 +241,10 @@ def train_one_epoch(sess, ops, train_writer,epoch):
     batch_idx = 0
 
     print('total batch num = ',num_batches)
-    t0 = time.time()
+    t_epoch = -1.0
     def log_train():
         log_string('epoch %d batch %d/%d \ttrain \tmean loss: %f   \taccuracy: %f' % \
                    (epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),total_correct / float(total_seen)  ))
-        t_cur = time.time()
-        t_epoch = t_cur - t0
         t_block = t_epoch / (batch_idx+1) / BATCH_SIZE
         t_point = t_block / NUM_POINT * 1000
         t_train_total = t_cur - T_START
@@ -273,8 +271,10 @@ def train_one_epoch(sess, ops, train_writer,epoch):
         feed_dict = {ops['pointclouds_pl']: batch_data,
                      ops['labels_pl']:      batch_label,
                      ops['is_training_pl']: is_training,}
+        t0 = time.time()
         summary, step, _, loss_val, pred_val = sess.run([ops['merged'], ops['step'], ops['train_op'], ops['loss'], ops['pred']],
                                          feed_dict=feed_dict)
+        t_epoch = time.time() - t0
 
         train_writer.add_summary(summary, step)
         pred_val = np.argmax(pred_val, 2)
@@ -299,25 +299,30 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
     batch_idx = -1
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
+    false_positive_class = [0 for _ in range(NUM_CLASSES)]
 
     log_string('----')
 
     eval_num_blocks = net_provider.eval_num_blocks
     num_batches = int(math.ceil( 1.0 * eval_num_blocks / BATCH_SIZE ))
     #num_batches = eval_num_blocks // BATCH_SIZE
-
-    t0 = time.time()
+    t_epoch = -1.0
     def log_eval():
-        log_string('epoch %d batch %d/%d \teval \tmean loss: %f   \taccuracy: %f' % \
+        log_string('\nepoch %d batch %d/%d \teval \tmean loss: %f   \taccuracy: %f' % \
                    ( epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),\
                     total_correct / float(total_seen) ))
-        class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
-        log_string('eval ave class accuracy: %f'%(class_accuracies.mean()))
-        cls_acc_str = '  '.join([ '%s:%f'%(Normed_H5f.g_label2class[l],class_accuracies[l]) for l in range(len(class_accuracies)) ])
-        log_string('eval  %s'%(cls_acc_str))
-        #log_string('eval class accuracies: %s' % (np.array2string(class_accuracies,formatter={'float':lambda x: "%f"%x})))
+        class_TP = np.array(total_correct_class)
+        class_FP = np.array(false_positive_class,dtype=np.float)
+        class_RealPos = np.array(total_seen_class,dtype=np.float)
+        class_recall = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float) # recall
+        class_precision = class_TP / (class_TP+class_FP)
+        log_string('eval ave class recall   : %f'%(class_recall.mean()))
+        log_string('eval ave class precision: %f'%(class_precision.mean()))
+        def class_str(class_ls):
+            return '  '.join([ '%s:%f'%(Normed_H5f.g_label2class[l],class_ls[l]) for l in range(len(class_ls)) ])
+        log_string('eval recall %s'%(class_str(class_recall)))
+        log_string('eval precis %s'%(class_str(class_precision)))
 
-        t_epoch = time.time() - t0
         t_per_block = t_epoch / (batch_idx+1) / BATCH_SIZE
         t_per_point = t_per_block / NUM_POINT * 1000
         log_string('per block eval time = %f sec      per point t = %f ms'%(t_per_block,t_per_point) )
@@ -343,9 +348,10 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
         feed_dict = {ops['pointclouds_pl']: batch_data,
                      ops['labels_pl']:      batch_label,
                      ops['is_training_pl']: is_training}
+        t0 = time.time()
         summary, step, loss_val, pred_val = sess.run([ops['merged'], ops['step'], ops['loss'], ops['pred']],
                                       feed_dict=feed_dict)
-        #print('loss_val = ',loss_val)
+        t_epoch = time.time() - t0
 
         if FLAGS.no_clutter:
             pred_val = np.argmax(pred_val[:,:,0:12], 2) # BxN
@@ -364,6 +370,7 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
                 l = batch_label[i, j]
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i, j] == l)
+                false_positive_class[pred_val[i,j]] += (pred_val[i,j] != l)
 
         if FLAGS.only_evaluate:
             net_provider.set_pred_label_batch(pred_val,start_idx,end_idx)
@@ -376,6 +383,8 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
     if FLAGS.only_evaluate:
         obj_dump_dir = os.path.join(FLAGS.log_dir,'obj_dump')
         net_provider.gen_gt_pred_objs(FLAGS.visu,obj_dump_dir)
+        net_provider.write_file_accuracies(obj_dump_dir)
+        print('\nobj out path:'+obj_dump_dir)
 
 
 

@@ -1123,21 +1123,89 @@ class Normed_H5f():
                 dset_i.resize( (valid_n,)+dset_i.shape[1:] )
 
 
-    def gen_gt_pred_obj_examples(self,config_flag = 1,out_path=None):
+    def Get_file_accuracies(self,IsWrite=False,out_path=None):
+        # get the accuracy of each file by the pred data in hdf5
+        if self.pred_label_set.shape[0] != self.label_set.shape[0]:
+            return ''
+        class_num = len(self.g_class2label)
+        class_TP = np.ones(shape=(class_num))* class_num
+        class_FN = np.ones(shape=(class_num))* class_num
+        class_FP = np.ones(shape=(class_num))* class_num
+        total_correct = 0.0
+        total_seen = 0.0
+
+        for j in range(0,self.raw_xyz_set.shape[0]):
+            xyz_block = self.raw_xyz_set[j,:]
+            label_gt = self.label_set[j,:]
+            label_pred = self.pred_label_set[j,:]
+            for i in range(xyz_block.shape[0]):
+                # calculate accuracy
+                total_seen += 1
+                if (label_gt[i]==label_pred[i]):
+                    total_correct += 1
+                    class_TP[label_gt[i]] += 1
+                else:
+                    class_FN[label_gt[i]] += 1
+                    class_FP[label_pred[i]] += 1
+        # calculate accuracy
+        class_precision = [class_TP[c]/(class_TP[c]+class_FP[c]) for c in range(class_num)]
+        class_recall = [class_TP[c]/(class_TP[c]+class_FN[c]) for c in range(class_num)]
+        class_IOU = [class_TP[c]/(class_TP[c]+class_FP[c]+class_FN[c]) for c in range(class_num)]
+        total_accu = total_correct  / total_seen
+        def get_str(ls):
+            return ',\t'.join(['%0.3f'%v for v in ls])
+        acc_str = 'total accuracy:  %3f    N = %3f M\n'%(total_accu,self.raw_xyz_set.size/1000000.0)
+        acc_str += '\t     '+',  '.join([c for c in self.g_class2label])+'\n'
+        acc_str += 'class_pre:   '+get_str(class_precision)+'\n'
+        acc_str += 'class_rec:   '+get_str(class_recall)+'\n'
+        acc_str += 'class_IOU:   '+get_str(class_IOU)+'\n'
+
+        if IsWrite:
+            base_fn = os.path.basename(self.file_name)
+            base_fn = os.path.splitext(base_fn)[0]
+            folder_path = os.path.dirname(self.file_name)
+            if out_path == None:
+                obj_folder = os.path.join(folder_path,'obj_file',base_fn)
+            else:
+                obj_folder = os.path.join(out_path,base_fn)
+            print('obj_folder=',obj_folder)
+            if not os.path.exists(obj_folder):
+                os.makedirs(obj_folder)
+            accuracy_fn = os.path.join(obj_folder,'accuracies.txt')
+            with open(accuracy_fn,'w') as accuracy_f:
+                    accuracy_f.write(acc_str)
+        return acc_str
+
+
+    def gen_gt_pred_obj_examples(self,config_flag = ['None'],out_path=None):
         #{'ceiling','floor','wall','beam','column','window','door','table','chair','sofa','bookcase','board','clutter'}
-        if config_flag ==None:
-            xyz_cut_rate=None
-            show_categaries=None
-        if config_flag =='only_ceiling':
-            xyz_cut_rate=None
-            show_categaries=['ceiling']
-        if config_flag ==1:
-            xyz_cut_rate=[0.05,0,0.95]
-            show_categaries=None
+        config_flag = ['building_6_no_ceiling']
+        def get_config(config_flag):
+            if config_flag =='None':
+                xyz_cut_rate=None
+                show_categaries=None
+            if config_flag =='only_ceiling':
+                xyz_cut_rate=None
+                show_categaries=['ceiling']
+            if config_flag =='yZ':
+                xyz_cut_rate=[0,0.06,0.93]
+                show_categaries=None
+            if config_flag =='XZ':
+                xyz_cut_rate=[0.95,0,0.93]
+                show_categaries=None
+            if config_flag =='building_7':
+                xyz_cut_rate=None
+                show_categaries=['ceiling','floor','wall','beam','column','window','door']
+            if config_flag =='building_6_no_ceiling':
+                xyz_cut_rate=None
+                show_categaries=['floor','wall','beam','column','window','door']
+            return xyz_cut_rate,show_categaries
+        for flag in config_flag:
+            xyz_cut_rate,show_categaries = get_config(flag)
+            #self.gen_gt_pred_obj(out_path,xyz_cut_rate,show_categaries,visu_flag=str(flag))
+            self.Get_file_accuracies(IsWrite=True)
 
-        self.gen_gt_pred_obj(out_path,xyz_cut_rate,show_categaries)
-
-    def gen_gt_pred_obj(self,out_path=None,xyz_cut_rate=None,show_categaries=None):
+    def gen_gt_pred_obj(self,out_path=None,xyz_cut_rate=None,show_categaries=None,visu_flag=None):
         '''
             (1)xyz_cut_rate:
                 # when rate < 0.5: cut small
@@ -1155,6 +1223,8 @@ class Normed_H5f():
         folder_path = os.path.dirname(self.file_name)
         if out_path == None:
             obj_folder = os.path.join(folder_path,'obj_file',base_fn)
+            if visu_flag != None:
+                obj_folder = os.path.join(obj_folder,visu_flag)
         else:
             obj_folder = os.path.join(out_path,base_fn)
         print('obj_folder=',obj_folder)
@@ -1172,7 +1242,6 @@ class Normed_H5f():
         file_size = self.raw_xyz_set.shape[0] * self.raw_xyz_set.shape[1]
 
         if xyz_cut_rate != None:
-            xyz_cut_rate = [0.1,0,0.9]
             # when rate < 0.5: cut small
             # when rate >0.5: cut big
             xyz_max = np.array([np.max(self.raw_xyz_set[:,:,i]) for i in range(3)])
@@ -1181,10 +1250,10 @@ class Normed_H5f():
             xyz_thres = xyz_scope * xyz_cut_rate + xyz_min
             print('xyz_thres = ',str(xyz_thres))
         cut_num = 0
+
         with open(gt_obj_fn,'w') as gt_f, open(raw_obj_fn,'w') as raw_f, open(raw_colored_obj_fn,'w') as raw_colored_f:
-          with open(pred_obj_fn,'w') as pred_f:
-            with open(dif_obj_fn,'w') as dif_f:
-              with open(correct_obj_fn,'w') as correct_f:
+          with open(pred_obj_fn,'w') as pred_f,open(dif_obj_fn,'w') as dif_f:
+            with open(correct_obj_fn,'w') as correct_f:
                 for j in range(0,self.raw_xyz_set.shape[0]):
                     xyz_block = self.raw_xyz_set[j,:]
                     label_gt = self.label_set[j,:]
@@ -1194,6 +1263,7 @@ class Normed_H5f():
                     else:
                         IsGenPred = False
                     for i in range(xyz_block.shape[0]):
+
                         # cut parts by xyz or label
                         is_cut_this_point = False
                         if show_categaries!=None and label_gt[i] not in show_categaries:
@@ -1230,13 +1300,29 @@ class Normed_H5f():
                             pred_num += 1
                     if j%10 ==0: print('batch %d / %d'%(j,self.raw_xyz_set.shape[0]))
 
+
                 print('gen gt obj file (%d): \n%s'%(file_size,gt_obj_fn) )
                 if pred_num > 0:
-                    print('gen pred obj file (%d,%f): \n%s '%(pred_num,1.0*pred_num/file_size,pred_obj_fn) )
-                    print('gen correct obj file (%d,%f),: \n%s '%(correct_num,1.0*correct_num/pred_num,correct_obj_fn) )
+                     print('gen pred obj file (%d,%f): \n%s '%(pred_num,1.0*pred_num/file_size,pred_obj_fn) )
+                     print('gen correct obj file (%d,%f),: \n%s '%(correct_num,1.0*correct_num/pred_num,correct_obj_fn) )
                 print('gen dif obj file: ',pred_obj_fn)
                 print('cut roof ponit num = %d, xyz_cut_rate = %s'%(cut_num,str(xyz_cut_rate)) )
 
+def Write_all_file_accuracies(normed_h5f_file_list=None,out_path=None):
+    if normed_h5f_file_list == None:
+        normed_h5f_file_list = glob.glob( GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096 +
+                            '/Area_6*' )
+    if out_path == None: out_path = os.path.join(GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096,
+                                    'obj_file')
+    all_acc_fn = os.path.join(out_path,'all_file_accuracies.txt')
+    with open(all_acc_fn,'w') as all_acc_f:
+        for i,fn in enumerate(normed_h5f_file_list):
+            h5f = h5py.File(fn,'r')
+            norm_h5f = Normed_H5f(h5f,fn)
+            acc_str = norm_h5f.Get_file_accuracies(IsWrite=False, out_path = out_path)
+            if acc_str != '':
+                all_acc_f.write('File: '+os.path.basename(fn)+'\n')
+                all_acc_f.write(acc_str+'\n')
 
 class SortSpace():
     '''
@@ -1416,7 +1502,7 @@ class Net_Provider():
         train_file_N = len(train_file_list)
         eval_file_N = len(eval_file_list)
         self.g_file_N = train_file_N + eval_file_N
-        normed_h5f_file_list = train_file_list + eval_file_list
+        self.normed_h5f_file_list =  normed_h5f_file_list = train_file_list + eval_file_list
 
         self.norm_h5f_L = []
         # global: within the whole train/test dataset  (several files)
@@ -1605,6 +1691,10 @@ class Net_Provider():
         for k,norm_h5f in enumerate(self.norm_h5f_L):
             if norm_h5f.file_name.find(visu_fn_glob) > 0:
                 norm_h5f.gen_gt_pred_obj( obj_dump_dir )
+
+    def write_file_accuracies(self,obj_dump_dir=None):
+        Write_all_file_accuracies(self.normed_h5f_file_list,obj_dump_dir)
+
 
 
 #-------------------------------------------------------------------------------
@@ -2014,7 +2104,8 @@ def Do_gen_gt_pred_objs(file_list=None):
         folder = GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096
         # many chairs and tables
         #file_list = glob.glob(os.path.join(folder,'Area_1_office_16_stride_0.5_step_1_random_4096_globalnorm.nh5'))
-        file_list = glob.glob(os.path.join(folder,'Area_1_office_10_stride_0.5_step_1_random_4096_globalnorm.nh5'))
+        # simple only one table
+        file_list = glob.glob(os.path.join(folder,'Area_6_pantry_1_stride_0.5_step_1_random_4096_globalnorm.nh5'))
     for fn in file_list:
         with h5py.File(fn,'r') as h5f:
             norm_h5f = Normed_H5f(h5f,fn)
@@ -2152,7 +2243,8 @@ if __name__ == '__main__':
     #Do_gen_normed_obj(file_list)
     #Do_Norm(file_list)
     #gen_file_list(GLOBAL_PARA.seg_train_path)
-    Do_gen_gt_pred_objs()
+    #Do_gen_gt_pred_objs()
+    Write_all_file_accuracies()
     #Normed_H5f.show_all_colors()
     #Gen_raw_label_color_obj()
     #Indoor3d_Process.gen_stanford_indoor3d_to_rawh5f()
