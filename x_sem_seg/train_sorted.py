@@ -383,7 +383,7 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
     if FLAGS.only_evaluate:
         obj_dump_dir = os.path.join(FLAGS.log_dir,'obj_dump')
         net_provider.gen_gt_pred_objs(FLAGS.visu,obj_dump_dir)
-        net_provider.write_file_accuracies(obj_dump_dir)
+        net_provider.write_file_accuracies(FLAGS.log_dir)
         print('\nobj out path:'+obj_dump_dir)
 
 

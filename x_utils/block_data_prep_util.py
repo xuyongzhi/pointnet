@@ -1152,10 +1152,14 @@ class Normed_H5f():
         class_recall = [class_TP[c]/(class_TP[c]+class_FN[c]) for c in range(class_num)]
         class_IOU = [class_TP[c]/(class_TP[c]+class_FP[c]+class_FN[c]) for c in range(class_num)]
         total_accu = total_correct  / total_seen
+        def get_mean(ls):
+            return np.mean(np.array(ls))
         def get_str(ls):
+            ls = [get_mean(ls)] + ls
             return ',\t'.join(['%0.3f'%v for v in ls])
-        acc_str = 'total accuracy:  %3f    N = %3f M\n'%(total_accu,self.raw_xyz_set.size/1000000.0)
-        acc_str += '\t     '+',  '.join([c for c in self.g_class2label])+'\n'
+        total_acc_str = 'point average:  %0.3f,  class ave pre/rec/IOU: %0.3f/ %0.3f/ %0.3f    N = %f M'% \
+            (total_accu,get_mean(class_precision),get_mean(class_recall),get_mean(class_IOU), self.raw_xyz_set.size/1000000.0)
+        acc_str = total_acc_str + '\n\t    average,  '+',  '.join([c for c in self.g_class2label])+'\n'
         acc_str += 'class_pre:   '+get_str(class_precision)+'\n'
         acc_str += 'class_rec:   '+get_str(class_recall)+'\n'
         acc_str += 'class_IOU:   '+get_str(class_IOU)+'\n'
@@ -1174,7 +1178,7 @@ class Normed_H5f():
             accuracy_fn = os.path.join(obj_folder,'accuracies.txt')
             with open(accuracy_fn,'w') as accuracy_f:
                     accuracy_f.write(acc_str)
-        return acc_str
+        return acc_str,total_acc_str
 
 
     def gen_gt_pred_obj_examples(self,config_flag = ['None'],out_path=None):
@@ -1308,21 +1312,34 @@ class Normed_H5f():
                 print('gen dif obj file: ',pred_obj_fn)
                 print('cut roof ponit num = %d, xyz_cut_rate = %s'%(cut_num,str(xyz_cut_rate)) )
 
-def Write_all_file_accuracies(normed_h5f_file_list=None,out_path=None):
+def Write_all_file_accuracies(normed_h5f_file_list=None,out_path=None,pre_out_fn=''):
     if normed_h5f_file_list == None:
         normed_h5f_file_list = glob.glob( GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096 +
-                            '/Area_6*' )
+                            '/Area_6_office_2*' )
     if out_path == None: out_path = os.path.join(GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096,
-                                    'obj_file')
-    all_acc_fn = os.path.join(out_path,'all_file_accuracies.txt')
-    with open(all_acc_fn,'w') as all_acc_f:
+                                    'pred_accuracy')
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+    all_acc_fn = os.path.join(out_path,pre_out_fn+'accuracies.txt')
+    all_ave_acc_fn = os.path.join(out_path,pre_out_fn+'average_accuracies.txt')
+    with open(all_acc_fn,'w') as all_acc_f,open(all_ave_acc_fn,'w') as all_total_acc_f:
         for i,fn in enumerate(normed_h5f_file_list):
             h5f = h5py.File(fn,'r')
             norm_h5f = Normed_H5f(h5f,fn)
-            acc_str = norm_h5f.Get_file_accuracies(IsWrite=False, out_path = out_path)
+            acc_str,total_acc_str = norm_h5f.Get_file_accuracies(IsWrite=False, out_path = out_path)
             if acc_str != '':
                 all_acc_f.write('File: '+os.path.basename(fn)+'\n')
                 all_acc_f.write(acc_str+'\n')
+                all_total_acc_f.write(total_acc_str+'\t: '+os.path.basename(fn)+'\n')
+    print('accuracy file: '+all_acc_fn)
+    print('average accuracy file: '+all_ave_acc_fn)
+
+def Write_Area_accuracies():
+    for i in range(6):
+        glob_i = 'Area_%d'%(i+1)
+        normed_h5f_file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096,
+                                glob_i+'*') )
+        Write_all_file_accuracies(normed_h5f_file_list,pre_out_fn=glob_i+'_')
 
 class SortSpace():
     '''
@@ -2244,7 +2261,9 @@ if __name__ == '__main__':
     #Do_Norm(file_list)
     #gen_file_list(GLOBAL_PARA.seg_train_path)
     #Do_gen_gt_pred_objs()
-    Write_all_file_accuracies()
+
+    Write_Area_accuracies()
+
     #Normed_H5f.show_all_colors()
     #Gen_raw_label_color_obj()
     #Indoor3d_Process.gen_stanford_indoor3d_to_rawh5f()
