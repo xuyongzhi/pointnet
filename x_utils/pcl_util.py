@@ -1,5 +1,14 @@
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+DATA_DIR = os.path.join(ROOT_DIR,'data')
+
+class GLOBAL_PARA:
+    all_catigories = ['ceiling','floor','wall','beam','column','window','door','table','chair','sofa','bookcase','board','clutter']
+    good1_path = os.path.join(DATA_DIR,'stanford_indoor3d_globalnormedh5_stride_0.5_step_1_4096/obj_file/Area_6_office_25_stride_0.5_step_1_random_4096_globalnorm/all_single')
+
+
 
 class PCL_VIEWER:
 
@@ -10,6 +19,7 @@ class PCL_VIEWER:
     @staticmethod
     def get_obj_point_num(obj_fn):
         with open(obj_fn,'r') as obj_f:
+            i = 0
             for i,_ in  enumerate(obj_f):
                 pass
             return i+1
@@ -52,8 +62,10 @@ class PCL_VIEWER:
                     elements = elements[1:len(elements)]
                     new_line = '  '.join(elements) + '\n'
                     pcl_f.write(new_line)
+            print('gen file: '+os.path.basename(pcl_fn) )
 
 
 if __name__ =='__main__':
-    obj_fn = '/home/y/Research/pointnet/data/stanford_indoor3d_globalnormedh5_stride_0.5_step_1_4096/obj_file/Area_3_storage_2_stride_0.5_step_1_random_4096_globalnorm/Z/raw_colored.obj'
-    PCL_VIEWER.obj_to_pcl(obj_fn)
+    for cat in GLOBAL_PARA.all_catigories:
+        obj_fn = os.path.join(GLOBAL_PARA.good1_path,'gt_'+cat+'.obj')
+        PCL_VIEWER.obj_to_pcl(obj_fn)

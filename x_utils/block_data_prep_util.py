@@ -1128,11 +1128,10 @@ class Normed_H5f():
         if self.pred_label_set.shape[0] != self.label_set.shape[0]:
             return ''
         class_num = len(self.g_class2label)
-        class_TP = np.ones(shape=(class_num))* class_num
-        class_FN = np.ones(shape=(class_num))* class_num
-        class_FP = np.ones(shape=(class_num))* class_num
-        total_correct = 0.0
-        total_seen = 0.0
+        class_TP = np.zeros(shape=(class_num))
+        class_FN = np.zeros(shape=(class_num))
+        class_FP = np.zeros(shape=(class_num))
+        total_num = self.raw_xyz_set.size
 
         for j in range(0,self.raw_xyz_set.shape[0]):
             xyz_block = self.raw_xyz_set[j,:]
@@ -1140,57 +1139,54 @@ class Normed_H5f():
             label_pred = self.pred_label_set[j,:]
             for i in range(xyz_block.shape[0]):
                 # calculate accuracy
-                total_seen += 1
                 if (label_gt[i]==label_pred[i]):
-                    total_correct += 1
                     class_TP[label_gt[i]] += 1
                 else:
                     class_FN[label_gt[i]] += 1
                     class_FP[label_pred[i]] += 1
-        # calculate accuracy
-        class_precision = [class_TP[c]/(class_TP[c]+class_FP[c]) for c in range(class_num)]
-        class_recall = [class_TP[c]/(class_TP[c]+class_FN[c]) for c in range(class_num)]
-        class_IOU = [class_TP[c]/(class_TP[c]+class_FP[c]+class_FN[c]) for c in range(class_num)]
-        class_real_pos = [class_TP[c]+class_FN[c] for c in range(class_num)]
-        point_ave_accu = total_correct  / total_seen
-        def get_mean(ls):
-            return np.mean(np.array(ls))
-        average_accuracies = [point_ave_accu,get_mean(class_precision),get_mean(class_recall),get_mean(class_IOU)]
-        def get_str(ls,str_format='%0.3f'):
-            ls = [get_mean(ls)] + ls
-            return ','.join(['%8s'%(str_format%v) for v in ls])
-        total_acc_str = 'point average:  %0.3f,  class ave pre/rec/IOU: %0.3f/ %0.3f/ %0.3f    N = %f M'% \
-            ( average_accuracies[0],  average_accuracies[1], average_accuracies[2], average_accuracies[3],self.raw_xyz_set.size/1000000.0)
-        acc_str = total_acc_str + '\n\t      average,'+','.join(['%8s'%c for c in self.g_class2label])+'\n'
-        acc_str += 'class_pre:   '+get_str(class_precision)+'\n'
-        acc_str += 'class_rec:   '+get_str(class_recall)+'\n'
-        acc_str += 'class_IOU:   '+get_str(class_IOU)+'\n'
-        acc_str += 'class_num:   '+get_str(class_real_pos,'%d')+'\n'
+        acc_str,ave_acc_str = Normed_H5f.cal_accuracy(class_TP,class_FN,class_FP,total_num)
+        return class_TP,class_FN,class_FP,total_num,acc_str,ave_acc_str
 
-        if IsWrite:
-            base_fn = os.path.basename(self.file_name)
-            base_fn = os.path.splitext(base_fn)[0]
-            folder_path = os.path.dirname(self.file_name)
-            if out_path == None:
-                obj_folder = os.path.join(folder_path,'obj_file',base_fn)
+    @staticmethod
+    def cal_accuracy(TP,FN,FP,total_num):
+        precision = np.nan_to_num(TP/(TP+FP))
+        recall = np.nan_to_num(TP/(TP+FN))
+        IOU = np.nan_to_num(TP/(TP+FN+FP))
+        # weighted ave
+        real_Pos = TP+FN
+        normed_real_TP = real_Pos/np.sum(real_Pos)
+        ave_4acc = np.zeros(shape=(4),dtype=np.float)
+        ave_4acc[0] = np.sum( precision*normed_real_TP )
+        ave_4acc[1] = np.sum( recall*normed_real_TP )
+        ave_4acc[2] = np.sum( IOU*normed_real_TP )
+        ave_4acc[3] = np.sum(TP)/total_num
+        ave_4acc_name = ['ave_class_pre','ave_class_rec','ave_class_IOU','ave_point_accu']
+        # gen str
+        delim = '' # ','
+        def getstr(array,mean=None,str_format='%0.3g'):
+            if mean!=None:
+                mean_str = '%8s'%(str_format%mean) + delim
             else:
-                obj_folder = os.path.join(out_path,base_fn)
-            print('obj_folder=',obj_folder)
-            if not os.path.exists(obj_folder):
-                os.makedirs(obj_folder)
-            accuracy_fn = os.path.join(obj_folder,'accuracies.txt')
-            with open(accuracy_fn,'w') as accuracy_f:
-                    accuracy_f.write(acc_str)
-        class_accu = [class_precision,class_recall,class_IOU,class_real_pos]
-        return acc_str,total_acc_str,average_accuracies,class_accu
+                mean_str = '%8s'%('  ')
+                if delim != '': mean_str = mean_str + ' '
 
+            return mean_str + delim.join(['%8s'%(str_format%v) for v in array])
+        ave_acc_str = 'point average:  %0.3f,  class ave pre/rec/IOU: %0.3f/ %0.3f/ %0.3f    N = %f M'% \
+            ( ave_4acc[0],  ave_4acc[1], ave_4acc[2], ave_4acc[3],total_num/1000000.0)
+        acc_str = ave_acc_str + '\n\t      average'+delim  + delim.join(['%8s'%c for c in Normed_H5f.g_class2label])+'\n'
+        acc_str += 'class_pre:   '+getstr(precision,ave_4acc[0])+'\n'
+        acc_str += 'class_rec:   '+getstr(recall,ave_4acc[1])+'\n'
+        acc_str += 'class_IOU:   '+getstr(IOU,ave_4acc[2])+'\n'
+        acc_str += 'number(K):   '+getstr(np.trunc(real_Pos/1000.0),str_format='%d')+'\n'
+        return acc_str,ave_acc_str
 
     def gen_gt_pred_obj_examples(self,config_flag = ['None'],out_path=None):
         #all_catigories = ['ceiling','floor','wall','beam','column','window','door','table','chair','sofa','bookcase','board','clutter']
         all_catigories = [key for key in self.g_class2label]
         config_flag = ['Z','building_6_no_ceiling']
         config_flag = ['all_single']
-        #config_flag = ['wall']
+        #config_flag = ['Y']
+        #config_flag = ['ALL']
         def get_config(config_flag):
             if config_flag == 'all_single':
                 show_categaries_ls = [[c] for c in all_catigories]
@@ -1200,8 +1196,8 @@ class Normed_H5f():
                 if config_flag =='ALL':
                     xyz_cut_rate=None
                     show_categaries=None
-                elif config_flag =='Z':
-                    xyz_cut_rate=[0,0,0.93]
+                elif config_flag =='Y':
+                    xyz_cut_rate=[0,0.92,1]
                     show_categaries=None
                 elif config_flag =='yZ':
                     xyz_cut_rate=[0,0.06,0.93]
@@ -1259,7 +1255,7 @@ class Normed_H5f():
             os.makedirs(obj_folder)
 
         raw_obj_fn = os.path.join(obj_folder, 'raw_'+pre_fn+'.obj')
-        raw_colored_obj_fn = os.path.join(obj_folder, 'raw_color_'+pre_fn+'obj')
+        raw_colored_obj_fn = os.path.join(obj_folder, 'raw_color_'+pre_fn+'.obj')
         gt_obj_fn = os.path.join(obj_folder, 'gt_'+pre_fn+'.obj')
         pred_obj_fn = os.path.join(obj_folder,'pred_'+pre_fn+'.obj')
         dif_obj_fn = os.path.join(obj_folder, 'dif_'+pre_fn+'.obj')
@@ -1338,57 +1334,61 @@ class Normed_H5f():
 def Write_all_file_accuracies(normed_h5f_file_list=None,out_path=None,pre_out_fn=''):
     if normed_h5f_file_list == None:
         normed_h5f_file_list = glob.glob( GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096 +
-                            '/Area_6_office_2*' )
+                            '/Area_2_office_1*' )
     if out_path == None: out_path = os.path.join(GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096,
                                     'pred_accuracy')
     if not os.path.exists(out_path):
         os.makedirs(out_path)
     all_acc_fn = os.path.join(out_path,pre_out_fn+'accuracies.txt')
     all_ave_acc_fn = os.path.join(out_path,pre_out_fn+'average_accuracies.txt')
-    average_accuracies_ls = []
+    class_TP = class_FN = class_FP = np.zeros(shape=(len(Normed_H5f.g_class2label)))
+    total_num = 0
     average_class_accu_ls = []
     with open(all_acc_fn,'w') as all_acc_f,open(all_ave_acc_fn,'w') as all_ave_acc_f:
         for i,fn in enumerate(normed_h5f_file_list):
             h5f = h5py.File(fn,'r')
             norm_h5f = Normed_H5f(h5f,fn)
-            acc_str,total_acc_str,average_accuracies,class_accu = norm_h5f.Get_file_accuracies(
+            class_TP_i,class_FN_i,class_FP_i,total_num_i,acc_str_i,ave_acc_str_i = norm_h5f.Get_file_accuracies(
                 IsWrite=False, out_path = out_path)
-            average_accuracies_ls.append(np.array(average_accuracies).reshape((1,4)))
-            average_class_accu_ls.append(np.array(class_accu))
-            if acc_str != '':
-                all_acc_f.write('File: '+os.path.basename(fn)+'\n')
-                all_acc_f.write(acc_str+'\n')
-                all_ave_acc_f.write(total_acc_str+'\t: '+os.path.basename(fn)+'\n')
-        ave_acc_f = np.mean( np.concatenate(average_accuracies_ls,axis=0), axis = 0)
-        ave_str = 'Throughout All %d files.  point ave: %0.3f,  class ave pre/rec/IOU: %0.3f/ %0.3f/ %0.3f'%(
-                    i+1,ave_acc_f[0],ave_acc_f[1],ave_acc_f[2],ave_acc_f[3])
-        ave_class = np.mean( np.array(average_class_accu_ls),axis=0 )
+            class_TP = class_TP_i + class_TP
+            class_FN = class_FN_i + class_FN
+            class_FP = class_FP_i + class_FP
+            total_num = total_num_i
 
-        def get_str(array,str_fm='%0.3f'):
-            return (str_fm+',\t')%(np.mean(array)) + ','.join(['%8s'%(str_fm%array[i]) for i in range(array.shape[0])])
-        ave_class_str = '\n\t      average,\t'+','.join(['%8s'%c for c in norm_h5f.g_class2label])+'\n'
-        ave_class_str += 'class_pre:\t'+get_str(ave_class[0,:])+'\n'
-        ave_class_str += 'class_rec:\t'+get_str(ave_class[1,:])+'\n'
-        ave_class_str += 'class_IOU:\t'+get_str(ave_class[2,:])+'\n'
-        ave_class_str += 'class_num:\t'+get_str(ave_class[3,:],'%d')+'\n'
-        ave_str += ave_class_str
+            if acc_str_i != '':
+                all_acc_f.write('File: '+os.path.basename(fn)+'\n')
+                all_acc_f.write(acc_str_i+'\n')
+                all_ave_acc_f.write(ave_acc_str_i+'\t: '+os.path.basename(fn)+'\n')
+
+        acc_str,ave_acc_str = Normed_H5f.cal_accuracy(class_TP,class_FN,class_FP,total_num)
+        ave_str = 'Throughout All %d files.\n'%(i+1) +  acc_str
         all_acc_f.write('\n'+ave_str)
         all_ave_acc_f.write('\n'+ave_str)
     print('accuracy file: '+all_acc_fn)
     print('average accuracy file: '+all_ave_acc_fn)
-    return ave_str,out_path
+    return ave_str,out_path,class_TP,class_FN,class_FP,total_num
 
 def Write_Area_accuracies():
     ave_str_areas = ''
+    class_TP = class_FN = class_FP = np.zeros(shape=(len(Normed_H5f.g_class2label)))
+    total_num = 0
     for i in range(6):
         glob_i = 'Area_%d'%(i+1)
         normed_h5f_file_list = glob.glob( os.path.join(GLOBAL_PARA.stanford_indoor3d_globalnormedh5_stride_0d5_step_1_4096,
                                 glob_i+'*') )
-        ave_str,out_path = Write_all_file_accuracies(normed_h5f_file_list,pre_out_fn=glob_i+'_')
+        ave_str,out_path,class_TP_i,class_FN_i,class_FP_i,total_num_i = Write_all_file_accuracies(normed_h5f_file_list,pre_out_fn=glob_i+'_')
+        class_TP = class_TP_i + class_TP
+        class_FN = class_FN_i + class_FN
+        class_FP = class_FP_i + class_FP
+        total_num += total_num_i
+
         ave_str_areas += '\nArea%d\n'%i
         ave_str_areas += ave_str
+    acc_str,ave_acc_str = Normed_H5f.cal_accuracy(class_TP,class_FN,class_FP,total_num)
+    all_area_str = '\nThrough %d areas.\n'%(i+1)+acc_str
     with open(os.path.join(out_path,'areas_accuracies.txt'),'w' ) as area_acc_f:
         area_acc_f.write(ave_str_areas)
+        area_acc_f.write(all_area_str)
 
 
 class SortSpace():
@@ -2173,8 +2173,15 @@ def Do_gen_gt_pred_objs(file_list=None):
         #file_list = glob.glob(os.path.join(folder,'Area_1_office_16_stride_0.5_step_1_random_4096_globalnorm.nh5'))
         # simple only one table
         #file_list = glob.glob(os.path.join(folder,'Area_6_pantry_1_stride_0.5_step_1_random_4096_globalnorm.nh5'))
+
         # wall good 0.88M
-        file_list = glob.glob(os.path.join(folder,'Area_6_office_25_stride_0.5_step_1_random_4096_globalnorm.nh5'))
+        #fn_glob = 'Area_6_office_25_stride_0.5_step_1_random_4096_globalnorm.nh5'
+        # all poor ave 0.5  1.5M
+        # fn_glob = 'Area_5_storage_1_stride_0.5_step_1_random_4096_globalnorm.nh5'
+        # test wall recall low
+        fn_glob = 'Area_1_office_10_stride_0.5_step_1_random_4096_globalnorm.nh5'
+
+        file_list = glob.glob(os.path.join(folder,fn_glob))
     for fn in file_list:
         with h5py.File(fn,'r') as h5f:
             norm_h5f = Normed_H5f(h5f,fn)
@@ -2312,9 +2319,9 @@ if __name__ == '__main__':
     #Do_gen_normed_obj(file_list)
     #Do_Norm(file_list)
     #gen_file_list(GLOBAL_PARA.seg_train_path)
-    Do_gen_gt_pred_objs()
+    #Do_gen_gt_pred_objs()
 
-    #Write_Area_accuracies()
+    Write_Area_accuracies()
     #Write_all_file_accuracies()
 
     #Normed_H5f.show_all_colors()
