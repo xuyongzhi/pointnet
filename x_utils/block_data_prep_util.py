@@ -1165,15 +1165,15 @@ class Normed_H5f():
         delim = '' # ','
         def getstr(array,mean=None,str_format='%0.3g'):
             if mean!=None:
-                mean_str = '%8s'%(str_format%mean) + delim
+                mean_str = '%9s'%(str_format%mean) + delim
             else:
-                mean_str = '%8s'%('  ')
+                mean_str = '%9s'%('  ')
                 if delim != '': mean_str = mean_str + ' '
 
-            return mean_str + delim.join(['%8s'%(str_format%v) for v in array])
+            return mean_str + delim.join(['%9s'%(str_format%v) for v in array])
         ave_acc_str = 'point average:  %0.3f,  class ave pre/rec/IOU: %0.3f/ %0.3f/ %0.3f    N = %f M'% \
             ( ave_4acc[0],  ave_4acc[1], ave_4acc[2], ave_4acc[3],total_num/1000000.0)
-        acc_str = ave_acc_str + '\n\t      average'+delim  + delim.join(['%8s'%c for c in Normed_H5f.g_class2label])+'\n'
+        acc_str = ave_acc_str + '\n\t       average'+delim  + delim.join(['%9s'%c for c in Normed_H5f.g_class2label])+'\n'
         acc_str += 'class_pre:   '+getstr(precision,ave_4acc[0])+'\n'
         acc_str += 'class_rec:   '+getstr(recall,ave_4acc[1])+'\n'
         acc_str += 'class_IOU:   '+getstr(IOU,ave_4acc[2])+'\n'

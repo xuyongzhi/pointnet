@@ -241,15 +241,16 @@ def train_one_epoch(sess, ops, train_writer,epoch):
     batch_idx = 0
 
     print('total batch num = ',num_batches)
-    t_epoch = -1.0
+    t_epoch = []
     def log_train():
         log_string('epoch %d batch %d/%d \ttrain \tmean loss: %f   \taccuracy: %f' % \
                    (epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),total_correct / float(total_seen)  ))
-        t_block = t_epoch / (batch_idx+1) / BATCH_SIZE
-        t_point = t_block / NUM_POINT * 1000
-        t_train_total = t_cur - T_START
-        log_string('per block training t = %f sec    per point t = %f ms\ntotal training t = %f sec'\
-                %(t_block,t_point,t_train_total))
+        if len(t_epoch) > 0:
+            t_block = np.mean(np.array(t_epoch)) / BATCH_SIZE
+            t_point = t_block / NUM_POINT * 1000
+            t_train_total = t_cur - T_START
+            log_string('per block training t = %f sec    per point t = %f ms\ntotal training t = %f sec'\
+                    %(t_block,t_point,t_train_total))
 
     shuffled_batch_idxs = np.arange(num_batches)
     np.random.shuffle(shuffled_batch_idxs)
@@ -274,7 +275,7 @@ def train_one_epoch(sess, ops, train_writer,epoch):
         t0 = time.time()
         summary, step, _, loss_val, pred_val = sess.run([ops['merged'], ops['step'], ops['train_op'], ops['loss'], ops['pred']],
                                          feed_dict=feed_dict)
-        t_epoch = time.time() - t0
+        t_epoch.append( time.time() - t0 )
 
         train_writer.add_summary(summary, step)
         pred_val = np.argmax(pred_val, 2)
@@ -306,7 +307,7 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
     eval_num_blocks = net_provider.eval_num_blocks
     num_batches = int(math.ceil( 1.0 * eval_num_blocks / BATCH_SIZE ))
     #num_batches = eval_num_blocks // BATCH_SIZE
-    t_epoch = -1.0
+    t_epoch = []
     def log_eval():
         log_string('\nepoch %d batch %d/%d \teval \tmean loss: %f   \taccuracy: %f' % \
                    ( epoch,batch_idx,num_batches-1,loss_sum / float(batch_idx+1),\
@@ -323,9 +324,10 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
         log_string('eval recall %s'%(class_str(class_recall)))
         log_string('eval precis %s'%(class_str(class_precision)))
 
-        t_per_block = t_epoch / (batch_idx+1) / BATCH_SIZE
-        t_per_point = t_per_block / NUM_POINT * 1000
-        log_string('per block eval time = %f sec      per point t = %f ms'%(t_per_block,t_per_point) )
+        if len(t_epoch)>0:
+            t_per_block = np.mean(np.array(t_epoch)) / BATCH_SIZE
+            t_per_point = t_per_block / NUM_POINT * 1000
+            log_string('per block eval time = %f sec      per point t = %f ms'%(t_per_block,t_per_point) )
 
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
@@ -351,7 +353,7 @@ def eval_one_epoch(sess, ops, test_writer,epoch):
         t0 = time.time()
         summary, step, loss_val, pred_val = sess.run([ops['merged'], ops['step'], ops['loss'], ops['pred']],
                                       feed_dict=feed_dict)
-        t_epoch = time.time() - t0
+        t_epoch.append( time.time() - t0 )
 
         if FLAGS.no_clutter:
             pred_val = np.argmax(pred_val[:,:,0:12], 2) # BxN
