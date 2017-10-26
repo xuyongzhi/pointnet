@@ -1154,13 +1154,13 @@ class Normed_H5f():
         point_ave_accu = total_correct  / total_seen
         def get_mean(ls):
             return np.mean(np.array(ls))
-        average_accuracies = [point_ave_accu,get_mean(class_precision),get_mean(class_precision),get_mean(class_IOU)]
+        average_accuracies = [point_ave_accu,get_mean(class_precision),get_mean(class_recall),get_mean(class_IOU)]
         def get_str(ls):
             ls = [get_mean(ls)] + ls
-            return ',\t'.join(['%0.3f'%v for v in ls])
+            return ','.join(['%8s'%('%0.3f'%v) for v in ls])
         total_acc_str = 'point average:  %0.3f,  class ave pre/rec/IOU: %0.3f/ %0.3f/ %0.3f    N = %f M'% \
             ( average_accuracies[0],  average_accuracies[1], average_accuracies[2], average_accuracies[3],self.raw_xyz_set.size/1000000.0)
-        acc_str = total_acc_str + '\n\t    average,  '+',  '.join([c for c in self.g_class2label])+'\n'
+        acc_str = total_acc_str + '\n\t      average,'+','.join(['%8s'%c for c in self.g_class2label])+'\n'
         acc_str += 'class_pre:   '+get_str(class_precision)+'\n'
         acc_str += 'class_rec:   '+get_str(class_recall)+'\n'
         acc_str += 'class_IOU:   '+get_str(class_IOU)+'\n'
@@ -1179,7 +1179,8 @@ class Normed_H5f():
             accuracy_fn = os.path.join(obj_folder,'accuracies.txt')
             with open(accuracy_fn,'w') as accuracy_f:
                     accuracy_f.write(acc_str)
-        return acc_str,total_acc_str,average_accuracies
+        class_accu = [class_precision,class_recall,class_IOU]
+        return acc_str,total_acc_str,average_accuracies,class_accu
 
 
     def gen_gt_pred_obj_examples(self,config_flag = ['None'],out_path=None):
@@ -1327,12 +1328,15 @@ def Write_all_file_accuracies(normed_h5f_file_list=None,out_path=None,pre_out_fn
     all_acc_fn = os.path.join(out_path,pre_out_fn+'accuracies.txt')
     all_ave_acc_fn = os.path.join(out_path,pre_out_fn+'average_accuracies.txt')
     average_accuracies_ls = []
+    average_class_accu_ls = []
     with open(all_acc_fn,'w') as all_acc_f,open(all_ave_acc_fn,'w') as all_ave_acc_f:
         for i,fn in enumerate(normed_h5f_file_list):
             h5f = h5py.File(fn,'r')
             norm_h5f = Normed_H5f(h5f,fn)
-            acc_str,total_acc_str,average_accuracies = norm_h5f.Get_file_accuracies(IsWrite=False, out_path = out_path)
+            acc_str,total_acc_str,average_accuracies,class_accu = norm_h5f.Get_file_accuracies(
+                IsWrite=False, out_path = out_path)
             average_accuracies_ls.append(np.array(average_accuracies).reshape((1,4)))
+            average_class_accu_ls.append(np.array(class_accu))
             if acc_str != '':
                 all_acc_f.write('File: '+os.path.basename(fn)+'\n')
                 all_acc_f.write(acc_str+'\n')
@@ -1340,6 +1344,15 @@ def Write_all_file_accuracies(normed_h5f_file_list=None,out_path=None,pre_out_fn
         ave_acc_f = np.mean( np.concatenate(average_accuracies_ls,axis=0), axis = 0)
         ave_str = '\n\nThroughout All %d files.  point ave: %0.3f,  class ave pre/rec/IOU: %0.3f/ %0.3f/ %0.3f'%(
                     i+1,ave_acc_f[0],ave_acc_f[1],ave_acc_f[2],ave_acc_f[3])
+        ave_class = np.mean( np.array(average_class_accu_ls),axis=0 )
+
+        def get_str(array):
+            return '%0.3f,\t'%(np.mean(array)) + ','.join(['%8s'%('%0.3f'%array[i]) for i in range(array.shape[0])])
+        ave_class_str = '\n\t      average,\t'+','.join(['%8s'%c for c in norm_h5f.g_class2label])+'\n'
+        ave_class_str += 'class_pre:\t'+get_str(ave_class[0,:])+'\n'
+        ave_class_str += 'class_rec:\t'+get_str(ave_class[1,:])+'\n'
+        ave_class_str += 'class_IOU:\t'+get_str(ave_class[2,:])+'\n'
+        ave_str += ave_class_str
         all_acc_f.write(ave_str)
         all_ave_acc_f.write(ave_str)
     print('accuracy file: '+all_acc_fn)
@@ -2273,9 +2286,9 @@ if __name__ == '__main__':
     #Do_gen_normed_obj(file_list)
     #Do_Norm(file_list)
     #gen_file_list(GLOBAL_PARA.seg_train_path)
-    Do_gen_gt_pred_objs()
+    #Do_gen_gt_pred_objs()
 
-    #Write_Area_accuracies()
+    Write_Area_accuracies()
     #Write_all_file_accuracies()
 
     #Normed_H5f.show_all_colors()
