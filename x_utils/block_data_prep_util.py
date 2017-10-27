@@ -1185,8 +1185,8 @@ class Normed_H5f():
         all_catigories = [key for key in self.g_class2label]
         config_flag = ['Z','building_6_no_ceiling']
         config_flag = ['all_single']
+        #config_flag = ['ALL','Y']
         #config_flag = ['Y']
-        #config_flag = ['ALL']
         def get_config(config_flag):
             if config_flag == 'all_single':
                 show_categaries_ls = [[c] for c in all_catigories]
@@ -1228,7 +1228,8 @@ class Normed_H5f():
                                      pre_fn=str(visu_flags[i]),visu_flag=str(flag))
            # self.Get_file_accuracies(IsWrite=True)
 
-    def gen_gt_pred_obj(self,out_path=None,xyz_cut_rate=None,show_categaries=None,pre_fn='',visu_flag=None):
+    def gen_gt_pred_obj(self,out_path=None,xyz_cut_rate=None,show_categaries=None,
+                        pre_fn='',visu_flag=None):
         '''
             (1)xyz_cut_rate:
                 # when rate < 0.5: cut small
@@ -1258,7 +1259,8 @@ class Normed_H5f():
         raw_colored_obj_fn = os.path.join(obj_folder, 'raw_color_'+pre_fn+'.obj')
         gt_obj_fn = os.path.join(obj_folder, 'gt_'+pre_fn+'.obj')
         pred_obj_fn = os.path.join(obj_folder,'pred_'+pre_fn+'.obj')
-        dif_obj_fn = os.path.join(obj_folder, 'dif_'+pre_fn+'.obj')
+        dif_FN_obj_fn = os.path.join(obj_folder, 'dif_FN_'+pre_fn+'.obj')
+        dif_FP_obj_fn = os.path.join(obj_folder, 'dif_FP_'+pre_fn+'.obj')
         correct_obj_fn = os.path.join(obj_folder,'correct_'+pre_fn+'.obj')
         correct_num = 0
         pred_num = 0
@@ -1275,7 +1277,7 @@ class Normed_H5f():
         cut_num = 0
 
         with open(gt_obj_fn,'w') as gt_f, open(raw_obj_fn,'w') as raw_f, open(raw_colored_obj_fn,'w') as raw_colored_f:
-          with open(pred_obj_fn,'w') as pred_f,open(dif_obj_fn,'w') as dif_f:
+          with open(pred_obj_fn,'w') as pred_f,open(dif_FN_obj_fn,'w') as dif_FN_f,open(dif_FP_obj_fn,'w') as dif_FP_f:
             with open(correct_obj_fn,'w') as correct_f:
                 for j in range(0,self.raw_xyz_set.shape[0]):
                     xyz_block = self.raw_xyz_set[j,:]
@@ -1289,9 +1291,12 @@ class Normed_H5f():
 
                         # cut parts by xyz or label
                         is_cut_this_point = False
-                        if show_categaries!=None and label_gt[i] not in show_categaries:
+                        if show_categaries!=None and label_gt[i] not in show_categaries and \
+                                label_pred[i] not in show_categaries:
+                            # cut by category
                             is_cut_this_point = True
                         elif xyz_cut_rate!=None:
+                            # cut by position
                             for xyz_j in range(3):
                                 if (xyz_cut_rate[xyz_j] >0.5 and xyz_block[i,xyz_j] > xyz_thres[xyz_j]) or \
                                     (xyz_cut_rate[xyz_j]<=0.5 and xyz_block[i,xyz_j] < xyz_thres[xyz_j]):
@@ -1302,26 +1307,32 @@ class Normed_H5f():
 
                         color_gt = self.label2color( label_gt[i] )
                         str_xyz = 'v ' + ' '.join( ['%0.3f'%(d) for d in  xyz_block[i,:] ])
-                        raw_f.write(str_xyz+'\n')
                         str_xyz = str_xyz + ' \t'
                         str_raw_color = ' '.join( ['%d'%(d) for d in  256*self.data_set[j,i,self.elements_idxs['color_1norm']]]) + '\n'
-                        raw_colored_f.write(str_xyz+str_raw_color)
                         str_color_gt = ' '.join( ['%d'%(d) for d in  color_gt]) + '\n'
                         str_gt = str_xyz + str_color_gt
-                        gt_f.write( str_gt )
+
+                        if show_categaries == None or label_gt[i] in show_categaries:
+                            raw_f.write(str_xyz+'\n')
+                            raw_colored_f.write(str_xyz+str_raw_color)
+                            gt_f.write( str_gt )
 
                         if IsGenPred and label_pred[i] in self.g_label2color:
                             color_pred = self.label2color( label_pred[i] )
                             str_color_pred = ' '.join( ['%d'%(d) for d in  color_pred]) + '\n'
                             str_pred = str_xyz + str_color_pred
-                            pred_f.write( str_pred )
+                            if show_categaries==None or label_pred[i] in show_categaries:
+                                pred_f.write( str_pred )
                             if label_gt[i] != label_pred[i]:
-                                dif_f.write(str_pred)
+                                if show_categaries == None or label_gt[i] in show_categaries:
+                                    dif_FN_f.write(str_pred)
+                                if show_categaries == None or label_pred[i] in show_categaries:
+                                    dif_FP_f.write(str_gt)
                             else:
                                 correct_f.write(str_pred)
                                 correct_num += 1
                             pred_num += 1
-                    if j%10 ==0: print('batch %d / %d'%(j,self.raw_xyz_set.shape[0]))
+                    if j%20 ==0: print('batch %d / %d'%(j,self.raw_xyz_set.shape[0]))
 
 
                 print('gen gt obj file (%d): \n%s'%(file_size,gt_obj_fn) )
@@ -1353,7 +1364,7 @@ def Write_all_file_accuracies(normed_h5f_file_list=None,out_path=None,pre_out_fn
             class_TP = class_TP_i + class_TP
             class_FN = class_FN_i + class_FN
             class_FP = class_FP_i + class_FP
-            total_num = total_num_i
+            total_num = total_num_i +  total_num
 
             if acc_str_i != '':
                 all_acc_f.write('File: '+os.path.basename(fn)+'\n')
@@ -1380,7 +1391,7 @@ def Write_Area_accuracies():
         class_TP = class_TP_i + class_TP
         class_FN = class_FN_i + class_FN
         class_FP = class_FP_i + class_FP
-        total_num += total_num_i
+        total_num = total_num_i + total_num
 
         ave_str_areas += '\nArea%d\n'%i
         ave_str_areas += ave_str
@@ -2175,13 +2186,14 @@ def Do_gen_gt_pred_objs(file_list=None):
         #file_list = glob.glob(os.path.join(folder,'Area_6_pantry_1_stride_0.5_step_1_random_4096_globalnorm.nh5'))
 
         # wall good 0.88M
-        #fn_glob = 'Area_6_office_25_stride_0.5_step_1_random_4096_globalnorm.nh5'
+        fn_glob_good = 'Area_6_office_25_stride_0.5_step_1_random_4096_globalnorm.nh5'
         # all poor ave 0.5  1.5M
-        # fn_glob = 'Area_5_storage_1_stride_0.5_step_1_random_4096_globalnorm.nh5'
+        fn_glob_poor = 'Area_5_storage_1_stride_0.5_step_1_random_4096_globalnorm.nh5'
         # test wall recall low
-        fn_glob = 'Area_1_office_10_stride_0.5_step_1_random_4096_globalnorm.nh5'
+        fn_glob_test = 'Area_1_office_10_stride_0.5_step_1_random_4096_globalnorm.nh5'
+        fn_glob = [fn_glob_good,fn_glob_poor,fn_glob_test]
+        file_list = [ os.path.join(folder,fn)  for fn in fn_glob]
 
-        file_list = glob.glob(os.path.join(folder,fn_glob))
     for fn in file_list:
         with h5py.File(fn,'r') as h5f:
             norm_h5f = Normed_H5f(h5f,fn)
@@ -2319,9 +2331,9 @@ if __name__ == '__main__':
     #Do_gen_normed_obj(file_list)
     #Do_Norm(file_list)
     #gen_file_list(GLOBAL_PARA.seg_train_path)
-    #Do_gen_gt_pred_objs()
+    Do_gen_gt_pred_objs()
 
-    Write_Area_accuracies()
+    #Write_Area_accuracies()
     #Write_all_file_accuracies()
 
     #Normed_H5f.show_all_colors()
