@@ -978,8 +978,7 @@ class Normed_H5f():
                      9: [200,100,100],
                      5:[10,200,100],
                      11:[200,200,200],
-                     12:[50,50,50],
-                     13:[200,200,100]}
+                     12:[200,200,100]}
     g_label2class = g_label2class_dic[DATASET_NAME]
     g_label2color = g_label2color_dic[DATASET_NAME]
 
@@ -1184,7 +1183,7 @@ class Normed_H5f():
         #all_catigories = ['ceiling','floor','wall','beam','column','window','door','table','chair','sofa','bookcase','board','clutter']
         all_catigories = [key for key in self.g_class2label]
         config_flag = ['Z','building_6_no_ceiling']
-        config_flag = ['all_single']
+        config_flag = ['all_single','Y']
         #config_flag = ['ALL','Y']
         #config_flag = ['Y']
         def get_config(config_flag):

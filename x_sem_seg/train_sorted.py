@@ -248,6 +248,7 @@ def train_one_epoch(sess, ops, train_writer,epoch):
         if len(t_epoch) > 0:
             t_block = np.mean(np.array(t_epoch)) / BATCH_SIZE
             t_point = t_block / NUM_POINT * 1000
+            t_cur = time.time()
             t_train_total = t_cur - T_START
             log_string('per block training t = %f sec    per point t = %f ms\ntotal training t = %f sec'\
                     %(t_block,t_point,t_train_total))
